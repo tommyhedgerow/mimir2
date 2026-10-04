@@ -1,8 +1,20 @@
 # The Mimir profile's own layer, applied after the bundle patches.
 #
-# Two rows matter here.
+# Three rows matter here.
 #
-# 1. `dsh-siyuan` gives the teacher hands in the vault. Its address and token
+# 1. `skill-filesystem` points the harness at the method. The teaching skills
+#    live beside this file, in `skills/`, and the harness would not find them
+#    there on its own — it looks in a workspace's `skills/`, `.dsh/skills` and
+#    `.agents/skills`, none of which is this directory. Without this row the
+#    application carries the persona and none of the method, and a session
+#    reads as a generic assistant rather than as this teacher.
+#
+#    The path comes from the environment for the same reason as everything else
+#    here: the profile is copied to a harness home at run time and shipped
+#    inside an application bundle in a packaged build, so its location is not
+#    knowable when this file is written. The shell sets MIMIR_PROFILE_DIR.
+#
+# 2. `dsh-siyuan` gives the teacher hands in the vault. Its address and token
 #    are read from the environment rather than written here, because this
 #    profile ships inside the application: a literal token would be a secret
 #    baked into every copy, and a literal port would break the moment two
@@ -11,10 +23,13 @@
 #    MIMIR_SIYUAN_URL   where the vault's kernel is listening
 #    MIMIR_SIYUAN_TOKEN the kernel's API token, created on first run
 #
-# 2. `system-prompt` states the teacher's role for this application. The
-#    method itself lives in the skills, which are files beside this one — this
-#    row only says what the agent is, so that a session opened in Mimir knows
-#    it is a tutor rather than a coding agent.
+# 3. `system-prompt` states the teacher's role for this application. The method
+#    itself lives in the skills — this row only says what the agent is, so that
+#    a session opened in Mimir knows it is a tutor rather than a coding agent.
+
+- id: skill-filesystem
+  config:
+    customSkillDirs: !!js process.env.MIMIR_PROFILE_DIR ? [process.env.MIMIR_PROFILE_DIR + '/skills'] : []
 
 - id: system-prompt
   config:

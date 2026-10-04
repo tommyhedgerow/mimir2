@@ -221,6 +221,10 @@ function startBridge(paths) {
         MIMIR_SIYUAN_URL: vaultAccess.baseUrl,
         MIMIR_SIYUAN_TOKEN: vaultAccess.token,
         MIMIR_VAULT: paths.vault,
+        // Where the harness finds the teaching method. The profile is copied
+        // to a harness home at run time, so its location is not knowable when
+        // the profile's own configuration is written — it is passed here.
+        MIMIR_PROFILE_DIR: join(paths.dshHome, 'profiles', 'mimir'),
       },
       // stdin stays open and owned: the bridge treats EOF on it as "the window
       // is gone", so a bridge whose shell died still reaps itself.
