@@ -176,3 +176,147 @@
   opacity: 0.45;
   cursor: default;
 }
+
+/* ------------------------------------------------------------- markdown prose
+ *
+ * What the teacher writes is markdown: headings, lists, tables, fenced code and
+ * diagrams. These rules make that read like a page rather than a dump. Sizes
+ * are relative to the dock's font size so the whole surface scales together.
+ */
+
+.mimir-turn__body > *:first-child {
+  margin-top: 0;
+}
+
+.mimir-turn__body > *:last-child {
+  margin-bottom: 0;
+}
+
+.mimir-h {
+  margin: 1.1em 0 0.35em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+h3.mimir-h { font-size: 1.12em; }
+h4.mimir-h { font-size: 1.02em; }
+h5.mimir-h,
+h6.mimir-h { font-size: 0.94em; color: var(--mimir-muted); }
+
+.mimir-p {
+  margin: 0 0 0.7em;
+  white-space: pre-wrap;
+}
+
+.mimir-list {
+  margin: 0 0 0.7em;
+  padding-left: 1.35em;
+}
+
+.mimir-list li {
+  margin-bottom: 0.22em;
+}
+
+.mimir-list .mimir-list {
+  margin: 0.22em 0 0;
+}
+
+.mimir-quote {
+  margin: 0 0 0.7em;
+  padding: 0.1em 0 0.1em 0.85em;
+  border-left: 2px solid var(--mimir-rule);
+  color: var(--mimir-muted);
+}
+
+.mimir-rule {
+  margin: 1em 0;
+  border: 0;
+  border-top: 1px solid var(--mimir-rule);
+}
+
+/* Tables scroll rather than wrap: a table that wraps is unreadable. */
+.mimir-table {
+  display: block;
+  overflow-x: auto;
+  margin: 0 0 0.8em;
+  border-collapse: collapse;
+  font-size: 0.94em;
+}
+
+.mimir-table th,
+.mimir-table td {
+  padding: 4px 8px;
+  border: 1px solid var(--mimir-rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+.mimir-table th {
+  background: var(--b3-theme-surface, #f2ead6);
+  font-weight: 600;
+}
+
+.mimir-pre {
+  overflow-x: auto;
+  margin: 0 0 0.8em;
+  padding: 9px 11px;
+  border: 1px solid var(--mimir-rule);
+  border-radius: 4px;
+  background: var(--b3-theme-surface, #f2ead6);
+  font-family: var(--b3-font-family-code, ui-monospace, Menlo, monospace);
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.mimir-pre code {
+  padding: 0;
+  background: none;
+}
+
+/* A link back into the vault is marked as such; a link out to the web is not. */
+.mimir-wikilink {
+  padding: 0 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--mimir-mark) 45%, transparent);
+  color: var(--mimir-mark);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.mimir-wikilink:hover {
+  background: color-mix(in srgb, var(--mimir-mark) 12%, transparent);
+}
+
+.mimir-wikilink--looking {
+  opacity: 0.55;
+}
+
+.mimir-tag {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--b3-theme-surface, #f2ead6);
+  color: var(--mimir-muted);
+  font-size: 0.9em;
+}
+
+.mimir-maths {
+  font-family: var(--b3-font-family-code, ui-monospace, Menlo, monospace);
+  font-size: 0.94em;
+}
+
+.mimir-diagram {
+  overflow-x: auto;
+  margin: 0 0 0.9em;
+  text-align: center;
+}
+
+.mimir-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mimir-diagram-error {
+  margin: -0.5em 0 0.8em;
+  color: var(--mimir-muted);
+  font-family: var(--b3-font-family-code, ui-monospace, Menlo, monospace);
+  font-size: 0.78em;
+}

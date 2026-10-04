@@ -8,6 +8,7 @@
   "packageManager": "pnpm@10.34.5",
   "scripts": {
     "bridge": "node packages/bridge/bin.mjs",
-    "test": "node --test packages/bridge/test/"
+    "test": "node --test packages/bridge/test/vault-sync.test.mjs packages/markdown/test/markdown.test.js packages/markdown/test/embedded.test.js",
+    "sync-markdown": "node scripts/sync-markdown.mjs"
   }
 }

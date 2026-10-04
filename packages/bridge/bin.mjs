@@ -41,7 +41,15 @@ const bridge = createBridge({
   reasoningEffort: values.effort,
 })
 
-const server = await serve(bridge, { port: Number(values.port ?? 0) })
+const server = await serve(bridge, {
+  port: Number(values.port ?? 0),
+  // The kernel the vault runs on, so a surface can resolve a wikilink to a
+  // document. Passed to the bridge, never to the surface.
+  kernel: {
+    baseUrl: process.env.MIMIR_SIYUAN_URL ?? '',
+    token: process.env.MIMIR_SIYUAN_TOKEN ?? '',
+  },
+})
 
 // The app treats "listening" and "model reachable" as different states: the
 // window may open before a key is configured, and say so, rather than failing

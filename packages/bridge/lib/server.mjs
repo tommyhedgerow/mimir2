@@ -17,6 +17,7 @@ const RPC_METHODS = new Set([
   'session.open',
   'session.get',
   'session.prompt',
+  'vault.find',
 ])
 
 /**
@@ -26,6 +27,9 @@ const RPC_METHODS = new Set([
 export async function serve(bridge, options = {}) {
   const host = options.host ?? '127.0.0.1'
   const requestedPort = options.port ?? 0
+  // Where the vault kernel is, so a surface can resolve a name to a document.
+  // The token stays in this process: the chat surface never sees it.
+  const kernel = options.kernel ?? { baseUrl: '', token: '' }
 
   // One line per request on stderr. The window is the only other observer of
   // this surface, and a window cannot be read from a terminal — so the surface
@@ -116,7 +120,7 @@ export async function serve(bridge, options = {}) {
       }
 
       try {
-        const result = await dispatch(bridge, method, params ?? {})
+        const result = await dispatch(bridge, method, params ?? {}, kernel)
         res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ result }))
       } catch (error) {
         res.writeHead(500, { 'content-type': 'application/json' }).end(
@@ -159,8 +163,9 @@ export async function serve(bridge, options = {}) {
  * @param {import('./bridge.mjs').Bridge} bridge
  * @param {string} method
  * @param {any} params
+ * @param {{ baseUrl: string, token: string }} kernel
  */
-async function dispatch(bridge, method, params) {
+async function dispatch(bridge, method, params, kernel) {
   switch (method) {
     case 'runtime.start':
       return bridge.start()
@@ -177,7 +182,53 @@ async function dispatch(bridge, method, params) {
       return bridge.getSession(params.sessionId)
     case 'session.prompt':
       return bridge.prompt(params.sessionId, params.text)
+    case 'vault.find':
+      return findDocument(kernel, String(params?.title ?? ''))
     default:
       throw new Error(`unhandled method: ${method}`)
+  }
+}
+
+/**
+ * Finds documents whose title matches, for a `[[wikilink]]` the learner clicked.
+ *
+ * Read-only and deliberately small: the surface needs to turn a name into an
+ * id so SiYuan can open it, and nothing more. The kernel's token stays here.
+ *
+ * @param {{ baseUrl: string, token: string }} kernel
+ * @param {string} title
+ */
+async function findDocument(kernel, title) {
+  if (!kernel.baseUrl) {
+    // Worth saying: this is a wiring fault, not an empty result, and a silent
+    // empty array here reads to the surface as "no such note exists".
+    process.stderr.write('vault.find: no kernel address is configured\n')
+    return []
+  }
+  if (!title.trim()) return []
+  const escaped = title.replace(/'/g, "''")
+  const stmt =
+    `SELECT id, content, hpath FROM blocks WHERE type = 'd' ` +
+    `AND content LIKE '%${escaped}%' LIMIT 5`
+  try {
+    const response = await fetch(`${kernel.baseUrl}/api/query/sql`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Token ${kernel.token}` },
+      body: JSON.stringify({ stmt }),
+      signal: AbortSignal.timeout(10000),
+    })
+    const payload = await response.json().catch(() => null)
+    if (!payload || payload.code !== 0) {
+      process.stderr.write(`vault.find: the kernel refused the query: ${payload?.msg ?? 'no reply'}\n`)
+      return []
+    }
+    return (payload.data ?? []).map((row) => ({
+      id: String(row.id ?? ''),
+      title: String(row.content ?? ''),
+      path: String(row.hpath ?? ''),
+    }))
+  } catch (error) {
+    process.stderr.write(`vault.find: ${error.message}\n`)
+    return []
   }
 }

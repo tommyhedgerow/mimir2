@@ -1,0 +1,12 @@
+{
+  "name": "@mimir/markdown",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The markdown the teacher writes, as a tree — so the dock can draw it and Node can test it.",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "markdown.js",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
