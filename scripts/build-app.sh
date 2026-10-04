@@ -56,8 +56,75 @@ if [ "${1:-}" = "--stage-only" ]; then
   exit 0
 fi
 
-# 4. Package. Signing and notarization are configured in build/README.md.
+# 4. Every resource the configuration names must exist, or electron-builder
+#    logs a line and ships an application with holes in it. It did exactly that
+#    once: three `file source doesn't exist` lines scrolled past inside a long
+#    build, and the result launched to "no SiYuan kernel found".
+echo "  checking the resources the configuration names…"
+missing=0
+for rel in "../../packages/bridge" "../../profile" "../../siyuan-plugin" "vendor/siyuan"; do
+  if [ ! -e "$SHELL_DIR/$rel" ]; then
+    echo "    MISSING $rel" >&2
+    missing=1
+  fi
+done
+if [ "$missing" = "1" ]; then
+  echo "ERROR: electron-builder would ship an application with those missing." >&2
+  exit 1
+fi
+echo "    all present"
+
+# The bridge deliberately carries no dependency tree: it resolves the harness SDK
+# from the profile, which ships anyway. If that resolution fails inside the
+# staged profile, the application builds cleanly and then cannot start its
+# runtime -- which is exactly what happened the first time this was packaged.
+echo "  checking the bridge can resolve its harness dependency (in the source)…"
+if ! "/usr/bin/env" node -e "
+const { createRequire } = require('node:module')
+const req = createRequire('$APP/profile/package.json')
+req.resolve('@deepseek-ai/dsh-sdk-client')
+" 2>/dev/null; then
+  echo "    the bridge cannot resolve @deepseek-ai/dsh-sdk-client from the profile" >&2
+  echo "    run: cd app/profile && pnpm install --ignore-workspace" >&2
+  exit 1
+fi
+echo "    resolves"
+
+# 5. Package. Signing and notarization are configured in build/README.md.
 cd "$SHELL_DIR"
 echo "  packaging…"
-npx --yes electron-builder@26.15.3 --config electron-builder.config.cjs "$@"
+NODE_BIN="${NODE_BIN:-node}"
+ELECTRON_BUILDER="$SHELL_DIR/node_modules/electron-builder/cli.js"
+if [ ! -f "$ELECTRON_BUILDER" ]; then
+  echo "ERROR: electron-builder is not installed. Run: pnpm add -D --filter @mimir/shell electron-builder" >&2
+  exit 1
+fi
+# `npx` and the pnpm shim both mis-forward arguments here (the CLI path arrives
+# as an argument and the run prints help instead), so the CLI is called directly.
+env -u ELECTRON_RUN_AS_NODE "$NODE_BIN" "$ELECTRON_BUILDER" --config electron-builder.config.cjs "$@"
+
+APP_BUNDLE="$APP/dist/app/mac-arm64/Mimir.app"
+
+# 7. Verify the BUNDLE, not the source. The source can be perfect while the
+#    packaged application cannot think.
+if [ -d "$APP_BUNDLE" ]; then
+  echo "  verifying the bundle…"
+  fail=0
+  for rel in \
+    "Contents/Resources/siyuan/Contents/Resources/kernel/SiYuan-Kernel" \
+    "Contents/Resources/app/profile/skills/mimir-teaching/SKILL.md" \
+    "Contents/Resources/app/profile/node_modules/@deepseek-ai/dsh-sdk-client" \
+    "Contents/Resources/app/packages/bridge/bin.mjs" \
+    "Contents/Resources/app/siyuan-plugin/index.js"; do
+    if [ ! -e "$APP_BUNDLE/$rel" ]; then
+      echo "    MISSING $rel" >&2
+      fail=1
+    fi
+  done
+  if [ "$fail" = "1" ]; then
+    echo "ERROR: the bundle is incomplete — it would launch and be unable to think." >&2
+    exit 1
+  fi
+  echo "    bundle complete"
+fi
 echo "done."

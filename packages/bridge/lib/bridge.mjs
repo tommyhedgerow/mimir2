@@ -14,6 +14,11 @@
  * without the harness's session model leaking into the drawing code.
  */
 
+import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
+import { join } from 'node:path'
+import { existsSync } from 'node:fs'
+
 /** @typedef {import('./types.mjs').BridgeOptions} BridgeOptions */
 /** @typedef {import('./types.mjs').TurnEvent} TurnEvent */
 /** @typedef {import('./types.mjs').SessionSummary} SessionSummary */
@@ -118,7 +123,7 @@ export class Bridge {
    */
   async start() {
     if (this.started) return this.summaryOfRuntime()
-    const { DeepSeekHarness } = await import('@deepseek-ai/dsh-sdk-client')
+    const { DeepSeekHarness } = await loadSdkClient(this.options.dshHome)
     this.harness = new DeepSeekHarness({
       profile: this.options.profile ?? 'mimir',
       dshHome: this.options.dshHome,
@@ -280,4 +285,43 @@ function extractAssistantText(event) {
 /** @param {BridgeOptions} options */
 export function createBridge(options) {
   return new Bridge(options)
+}
+
+/**
+ * The SDK client, resolved rather than depended upon.
+ *
+ * The bridge needs `@deepseek-ai/dsh-sdk-client`, and that package is already
+ * present inside the harness profile — the profile ships with the application
+ * and carries the whole harness dependency tree. Giving the bridge its own copy
+ * would put a second 495 MB tree in the bundle for no reason, and a workspace
+ * symlink would resolve in the repository and break in a bundle.
+ *
+ * So it is resolved from the profile, which is where it is. In development that
+ * is the same package in the same place; in a bundle it is the profile beside
+ * the bridge.
+ *
+ * @param {string | undefined} dshHome
+ */
+async function loadSdkClient(dshHome) {
+  const anchors = [
+    // The profile inside the application, or the harness home it was copied to.
+    dshHome ? join(dshHome, 'profiles', 'mimir', 'package.json') : null,
+    join(process.cwd(), 'profile', 'package.json'),
+    join(process.cwd(), 'package.json'),
+  ].filter(Boolean)
+
+  let lastError = null
+  for (const anchor of anchors) {
+    if (!existsSync(anchor)) continue
+    try {
+      const resolved = createRequire(anchor).resolve('@deepseek-ai/dsh-sdk-client')
+      return await import(pathToFileURL(resolved).href)
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw new Error(
+    `could not resolve @deepseek-ai/dsh-sdk-client from the harness profile ` +
+      `(looked from: ${anchors.join(', ')}): ${lastError?.message ?? 'not found'}`,
+  )
 }

@@ -165,9 +165,7 @@ select.field__input {
 }
 
 @media (prefers-color-scheme: dark) {
-  .mark {
-    content: url('art/mark-light.png');
-  }
+  /* The mark itself is swapped in setup.js: `content` does not apply to <img>. */
 
   :root {
     --paper: #06070d;

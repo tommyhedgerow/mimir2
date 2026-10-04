@@ -53,7 +53,24 @@ form.addEventListener('submit', async (event) => {
   const apiKey = keyField.value.trim()
   if (!apiKey) {
     showProblem('Paste a key first.')
-    keyField.focus()
+    /**
+ * The mark, in the variant that suits the appearance.
+ *
+ * Done here rather than in the stylesheet because `content: url(...)` applies to
+ * pseudo-elements and does nothing on an `<img>`, which is how the dark mark was
+ * first attempted.
+ */
+const mark = document.querySelector('.mark')
+if (mark) {
+  const dark = window.matchMedia('(prefers-color-scheme: dark)')
+  const paint = () => {
+    mark.src = dark.matches ? 'art/mark-light.png' : 'art/mark.png'
+  }
+  paint()
+  dark.addEventListener('change', paint)
+}
+
+keyField.focus()
     return
   }
 

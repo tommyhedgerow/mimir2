@@ -16,7 +16,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
 const { spawn } = require('node:child_process')
 const { join } = require('node:path')
-const { existsSync, mkdirSync, readFileSync, cpSync } = require("node:fs")
+const { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync } = require('node:fs')
 const { createServer } = require('node:net')
 
 const here = __dirname

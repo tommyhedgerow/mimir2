@@ -37,19 +37,43 @@ module.exports = {
     '!**/node_modules/**',
   ],
 
+  // Relative to THIS directory, not to the repository root. Getting that wrong
+  // does not fail the build: electron-builder logs `file source doesn't exist`
+  // for each entry and packages an application with no harness, no profile and
+  // no kernel, which fails at launch with "no SiYuan kernel found". The first
+  // build of this configuration did exactly that.
   extraResources: [
-    // The bridge, with only its own dependencies. Run by the shell with
-    // ELECTRON_RUN_AS_NODE, so it needs no node of its own.
-    { from: '../packages/bridge', to: 'app/packages/bridge', filter: ['**/*', '!test/**'] },
-    // The harness: profile, node_modules, skills, specialists.
-    { from: '../profile', to: 'app/profile' },
+    // The bridge. It carries no dependency tree: it resolves the harness SDK
+    // from the profile, which ships anyway.
+    { from: '../../packages/bridge', to: 'app/packages/bridge', filter: ['**/*', '!test/**'] },
+    // The harness: the profile, its whole node_modules, the nine skills and the
+    // six specialists.
+    //
+    // `node_modules/**` MUST be listed explicitly. electron-builder omits
+    // node_modules from extraResources by default, and the omission is silent:
+    // the build succeeds, the bundle looks complete, and the application starts
+    // its vault and then reports that it cannot resolve its own runtime. Both
+    // this and a wrong relative path produce the same symptom -- an application
+    // that launches and cannot think.
+    {
+      from: '../../profile',
+      to: 'app/profile',
+      filter: ['**/*', 'node_modules/**'],
+    },
     // The dock, installed into the vault on first run.
-    { from: '../siyuan-plugin', to: 'app/siyuan-plugin' },
+    { from: '../../siyuan-plugin', to: 'app/siyuan-plugin' },
     // SiYuan, unmodified, for its kernel.
     { from: 'vendor/siyuan', to: 'siyuan' },
   ],
 
   asar: true,
+
+  // The harness dependency tree cannot be delivered by `extraResources`:
+  // electron-builder omits `node_modules` there, whatever the filter says. This
+  // hook copies it after the application directory is assembled and before the
+  // installers are built — the order matters, because copying it afterwards
+  // produces a correct .app and a .dmg with 495 MB missing.
+  afterPack: 'build/after-pack.cjs',
 
   mac: {
     category: 'public.app-category.education',
