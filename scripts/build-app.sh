@@ -48,7 +48,7 @@ fi
 # 3. Record which SiYuan this build carries, so the source offered by CREDITS.md
 #    and the binary shipped here can be checked against each other.
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$VENDOR/Contents/Info.plist" 2>/dev/null || echo "unknown")
-echo "$VERSION" > "$SHELL_DIR/SIYUAN_VERSION"
+echo "$VERSION" > "$SHELL_DIR/siyuan-version.txt"
 echo "  SiYuan version: $VERSION"
 
 if [ "${1:-}" = "--stage-only" ]; then

@@ -75,7 +75,7 @@ quarantines a downloaded application and refuses it.
 distribution and why Mimir's own plugin is not a derivative of SiYuan. Read it
 before changing how SiYuan is carried.
 
-`SIYUAN_VERSION` records which SiYuan this build contains. It must be updated
+`siyuan-version.txt` records which SiYuan this build contains. It must be updated
 whenever `vendor/` is refreshed, so the source offered and the binary shipped
 are the same version.
 
