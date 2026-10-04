@@ -132,6 +132,10 @@ export class Bridge {
     // rather than on the learner's first question.
     await this.harness.start()
     this.started = true
+    // The one line that distinguishes "the window is up" from "the window has a
+    // runtime behind it". Without it a failed handshake and a healthy start
+    // look identical from outside.
+    process.stderr.write(`runtime ready: ${this.model.provider}/${this.model.model}\n`)
     return this.summaryOfRuntime()
   }
 

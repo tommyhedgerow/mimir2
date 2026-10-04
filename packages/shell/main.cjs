@@ -48,7 +48,7 @@ function startBridge() {
     const paths = resolvePaths()
     const entry = join(repoRoot, 'packages', 'bridge', 'bin.mjs')
 
-    bridgeProcess = spawn(process.execPath, [entry, '--dsh-home', paths.dshHome, '--vault', paths.vault], {
+    bridgeProcess = spawn(process.execPath, [entry, '--dsh-home', paths.dshHome, '--vault', paths.vault, '--eager'], {
       cwd: repoRoot,
       env: {
         ...process.env,
