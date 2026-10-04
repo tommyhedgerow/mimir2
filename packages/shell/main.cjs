@@ -281,31 +281,158 @@ function stop(child) {
   if (child) child.kill('SIGTERM')
 }
 
+/**
+ * Whether a model has been connected. The harness reads
+ * `<dshHome>/.credentials.yaml`, so that file is the single fact this asks
+ * about — the same one the harness itself will ask about when it starts.
+ */
+function hasModel(paths) {
+  return existsSync(join(paths.dshHome, '.credentials.yaml'))
+}
+
+/**
+ * Writes the key where the harness looks for it.
+ *
+ * The file belongs to DSH and its shape is DSH's: a `refs` map from an
+ * environment-variable name to a secret. It is written here rather than through
+ * a DSH API because the harness is spawned with its home pointed at this
+ * directory, and this file is the only thing it reads to find a key.
+ */
+function writeCredentials(paths, provider, apiKey) {
+  mkdirSync(paths.dshHome, { recursive: true })
+  const ref = provider === 'deepseek-official' ? 'DEEPSEEK_API_KEY' : `${provider.toUpperCase()}_API_KEY`
+  const yaml = ['version: 1', 'refs:', `  ${ref}: ${JSON.stringify(apiKey)}`, ''].join('\n')
+  const path = join(paths.dshHome, '.credentials.yaml')
+  writeFileSync(path, yaml, { mode: 0o600 })
+  return path
+}
+
+/**
+ * Checks a key against the provider before saving it.
+ *
+ * This is the difference between "that key was not accepted" on this sheet and
+ * a learner watching a lesson fail to start. One request buys it.
+ */
+async function checkKey(provider, apiKey) {
+  if (provider !== 'deepseek-official') return { ok: true }
+  try {
+    const response = await fetch('https://api.deepseek.com/user/balance', {
+      headers: { authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(15000),
+    })
+    if (response.ok) return { ok: true }
+    if (response.status === 401 || response.status === 403) {
+      return { ok: false, error: 'DeepSeek did not accept that key.' }
+    }
+    // A rate limit or an outage is not evidence the key is bad, and refusing to
+    // start over one would be wrong.
+    return { ok: true }
+  } catch {
+    return { ok: true, warning: 'Could not reach DeepSeek to check the key; saved it anyway.' }
+  }
+}
+
+function createSetupWindow() {
+  const window = new BrowserWindow({
+    width: 640,
+    height: 640,
+    resizable: false,
+    backgroundColor: '#faf6ea',
+    titleBarStyle: 'hiddenInset',
+    show: false,
+    webPreferences: {
+      preload: join(here, 'setup', 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  window.loadFile(join(here, 'setup', 'index.html'))
+  window.once('ready-to-show', () => window.show())
+  return window
+}
+
+/** Reports a start-up failure where a headless run can see it, then shows it. */
+function reportStartFailure(error) {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error)
+  process.stderr.write(`[mimir] failed to start: ${message}\n`)
+  dialog.showErrorBox('Mimir could not start', error instanceof Error ? error.message : String(error))
+  app.quit()
+}
+
+/**
+ * The whole application, once there is a model to run it. Called either
+ * directly, when a key is already configured, or from the setup sheet.
+ */
+async function launch(paths) {
+  await startVault(paths)
+  process.stderr.write(`[mimir] vault up: ${vault?.url}\n`)
+  // Not awaited: a dock that failed to switch on is worth a line in the log,
+  // not a refusal to start the app.
+  enableDock(vaultAccess.baseUrl, vaultAccess.token).catch(() => {})
+  await startBridge(paths)
+  createWindow()
+}
+
 app.whenReady().then(async () => {
   process.stderr.write('[mimir] starting\n')
   const paths = resolvePaths()
   try {
     prepareFirstRun(paths)
-    await startVault(paths)
-    process.stderr.write(`[mimir] vault up: ${vault?.url}\n`)
-    // Not awaited: a dock that failed to switch on is worth a line in the log,
-    // not a refusal to start the app.
-    enableDock(vaultAccess.baseUrl, vaultAccess.token).catch(() => {})
-    await startBridge(paths)
   } catch (error) {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error)
-    process.stderr.write(`[mimir] failed to start: ${message}\n`)
-    dialog.showErrorBox(
-      'Mimir could not start',
-      error instanceof Error ? error.message : String(error),
-    )
-    app.quit()
+    reportStartFailure(error)
     return
   }
 
-  createWindow()
+  ipcMain.handle('mimir:setup-describe', () => ({
+    credentialsPath: join(paths.dshHome, '.credentials.yaml'),
+    providers: ['deepseek-official'],
+  }))
+
+  ipcMain.handle('mimir:setup-connect', async (_event, payload) => {
+    const provider = String(payload?.provider ?? 'deepseek-official')
+    const apiKey = String(payload?.apiKey ?? '').trim()
+    if (!apiKey) return { ok: false, error: 'No key given.' }
+
+    const verdict = await checkKey(provider, apiKey)
+    if (!verdict.ok) return verdict
+
+    try {
+      const written = writeCredentials(paths, provider, apiKey)
+      process.stderr.write(`[mimir] model connected; credentials at ${written}\n`)
+    } catch (error) {
+      return { ok: false, error: `Could not save the key: ${error.message}` }
+    }
+
+    // Answer the sheet first, so it can say it is starting, then bring the app
+    // up behind it and close the sheet only once the vault is there.
+    setTimeout(() => {
+      launch(paths)
+        .then(() => {
+          // The vault window is created hidden and only shown once it has
+          // rendered; showing every window here is what makes the handover
+          // from the sheet to the application seamless.
+          for (const window of BrowserWindow.getAllWindows()) window.show()
+          setup.close()
+        })
+        .catch(reportStartFailure)
+    }, 50)
+
+    return { ok: true, warning: verdict.warning }
+  })
+
+  if (hasModel(paths)) {
+    try {
+      await launch(paths)
+    } catch (error) {
+      reportStartFailure(error)
+    }
+    return
+  }
+
+  process.stderr.write('[mimir] no model connected; opening setup\n')
+  const setup = createSetupWindow()
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) createSetupWindow()
   })
 })
 

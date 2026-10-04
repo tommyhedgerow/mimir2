@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <title>Mimir</title>
+    <link rel="stylesheet" href="setup.css" />
+  </head>
+  <body>
+    <main class="sheet">
+      <h1 class="wordmark">Mímir</h1>
+      <p class="lede">
+        One thing left. The teacher needs a model to think with, and that means an
+        API key &mdash; yours, kept on this machine.
+      </p>
+
+      <form id="form">
+        <label class="field">
+          <span class="field__label">Model provider</span>
+          <select id="provider" class="field__input">
+            <option value="deepseek-official">DeepSeek</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="field__label">API key</span>
+          <input
+            id="key"
+            class="field__input"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="sk-…"
+          />
+          <span class="field__hint" id="hint">
+            From <a href="https://platform.deepseek.com/api_keys" id="where">platform.deepseek.com</a>.
+            It is written to <code id="where-file">…</code> and nothing is sent anywhere else.
+          </span>
+        </label>
+
+        <p class="problem" id="problem" hidden></p>
+
+        <button class="go" id="go" type="submit">Start learning</button>
+      </form>
+    </main>
+    <script type="module" src="setup.js"></script>
+  </body>
+</html>
