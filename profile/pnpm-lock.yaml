@@ -17,6 +17,9 @@ importers:
       '@deepseek-ai/dsh-sdk-client':
         specifier: 0.1.7-rc.2
         version: 0.1.7-rc.2(ce90db4d02e023908a0e55be988fe833)
+      dsh-mimir-skin:
+        specifier: file:../../preset/mimir-skin
+        version: file:../../preset/mimir-skin
       dsh-siyuan:
         specifier: 0.2.0
         version: 0.2.0(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-settings@0.1.7-rc.2(7777cadd44aa1536041a98685cf9c193))(@deepseek-ai/dsh-tools@0.1.7-rc.2(d2e08270f2205e73d65e98cfcd910cae))(@deepseek-ai/schemastery@3.18.4)
@@ -3277,6 +3280,9 @@ packages:
   diff@9.0.0:
     resolution: {integrity: sha512-svtcdpS8CgJyqAjEQIXdb3OjhFVVYjzGAPO8WGCmRbrml64SPw/jJD4GoE98aR7r25A0XcgrK3F02yw9R/vhQw==}
     engines: {node: '>=0.3.1'}
+
+  dsh-mimir-skin@file:../../preset/mimir-skin:
+    resolution: {directory: ../../preset/mimir-skin, type: directory}
 
   dsh-siyuan@0.2.0:
     resolution: {integrity: sha512-ABnffpURXRywcHdi/f4o3dRxgC7P4/f+Pxk11C3Qjuvy2Yc924hqg0QWdjda82V+Zn3Nf6c0JE9+YLSgP7a95A==}
@@ -7788,6 +7794,8 @@ snapshots:
   dfa@1.2.0: {}
 
   diff@9.0.0: {}
+
+  dsh-mimir-skin@file:../../preset/mimir-skin: {}
 
   dsh-siyuan@0.2.0(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-settings@0.1.7-rc.2(7777cadd44aa1536041a98685cf9c193))(@deepseek-ai/dsh-tools@0.1.7-rc.2(d2e08270f2205e73d65e98cfcd910cae))(@deepseek-ai/schemastery@3.18.4):
     dependencies:

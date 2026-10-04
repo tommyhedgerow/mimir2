@@ -226,6 +226,17 @@ export class Bridge {
     const method = notification?.method
     if (method === 'session.event') {
       const event = notification.params?.event ?? notification.params
+
+      // A tool result may carry `meta` — the interface-facing half of a tool
+      // call, separate from what the model reads. The board publishes the
+      // lesson that way: its spine, question and drawings ride here as `meta`
+      // while the model sees one line, so a lesson can carry four drawings
+      // without four thousand tokens of path data entering the context.
+      const board = boardFrom(event)
+      if (board) {
+        this.#emit(sessionId, { type: 'board', board })
+      }
+
       const text = extractAssistantText(event)
       if (text !== null) {
         this.#emit(sessionId, {
@@ -324,4 +335,30 @@ async function loadSdkClient(dshHome) {
     `could not resolve @deepseek-ai/dsh-sdk-client from the harness profile ` +
       `(looked from: ${anchors.join(', ')}): ${lastError?.message ?? 'not found'}`,
   )
+}
+
+/**
+ * The board, if this event published one.
+ *
+ * The shape is the tool's own, passed through rather than reinterpreted: the
+ * surface decides how to draw a spine, and a bridge that reshaped it would be a
+ * second place for the board's contract to live.
+ *
+ * `nodes` is renamed to `spine` because that is what the tool calls it in the
+ * arguments it accepts, and one name for one thing is worth the line.
+ *
+ * @param {any} event
+ */
+export function boardFrom(event) {
+  if (event?.type !== 'tool/result') return null
+  const meta = event?.data?.meta
+  if (!meta || typeof meta !== 'object') return null
+  if (!Array.isArray(meta.nodes) && !Array.isArray(meta.spine)) return null
+  return {
+    spine: meta.spine ?? meta.nodes ?? [],
+    hint: typeof meta.hint === 'string' ? meta.hint : '',
+    question: typeof meta.question === 'string' ? meta.question : '',
+    options: Array.isArray(meta.options) ? meta.options : [],
+    drawings: Array.isArray(meta.drawings) ? meta.drawings : [],
+  }
 }

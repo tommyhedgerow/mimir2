@@ -30,8 +30,15 @@
  * the harness's: a surface that draws a lesson should not have to understand a
  * session's internal event model.
  *
+ * `board` is the lesson itself: the tool publishes the spine, the question and
+ * the drawings as interface-facing metadata, and the surface draws them. It is
+ * one event rather than several because the board is one thing.
+ *
+ * @typedef {{ spine: { node: string, state: string }[], hint: string, question: string, options: string[], drawings: { file?: string, title?: string, svg?: string }[] }} Board
+ *
  * @typedef {{ type: 'message', messageId: string, role: 'user' | 'assistant', text: string }
  *   | { type: 'status', status: 'running' | 'idle' }
+ *   | { type: 'board', board: Board }
  *   | { type: 'subagent', subagentId: string, state: 'started' | 'finished' }} TurnEvent
  */
 
