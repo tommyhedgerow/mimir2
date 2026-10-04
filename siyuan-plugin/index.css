@@ -1,0 +1,178 @@
+/*
+ * The Mimir dock, in the vault's own palette.
+ *
+ * Warm paper and sage; a serif for what is read and a monospace for what is
+ * furniture — the same rule the vault theme and the board follow. The colours
+ * are written as SiYuan theme variables where one exists, so the dock follows
+ * the app's light and dark themes rather than fighting them, with the Mimir
+ * values as the fallback.
+ */
+
+.mimir-dock {
+  --mimir-paper: var(--b3-theme-background, #faf6ea);
+  --mimir-ink: var(--b3-theme-on-background, #25231d);
+  --mimir-muted: var(--b3-theme-on-surface, #665e4c);
+  --mimir-rule: var(--b3-border-color, #e3d9c1);
+  --mimir-mark: var(--b3-theme-primary, #4f7a5c);
+
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+  min-height: 0;
+  background: var(--mimir-paper);
+  color: var(--mimir-ink);
+  font-family: var(--b3-font-family, 'Iowan Old Style', Palatino, Georgia, serif);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ------------------------------------------------------------------- the rail */
+
+.mimir-dock__rail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--mimir-rule);
+  font-family: var(--b3-font-family-code, ui-monospace, Menlo, monospace);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mimir-dock__model {
+  overflow: hidden;
+  color: var(--mimir-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mimir-dock__btn {
+  padding: 2px 8px;
+  border: 1px solid var(--mimir-rule);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--mimir-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mimir-dock__btn:hover {
+  border-color: var(--mimir-mark);
+  color: var(--mimir-mark);
+}
+
+/* ----------------------------------------------------------------- the stream */
+
+.mimir-dock__stream {
+  overflow-y: auto;
+  padding: 14px 12px;
+}
+
+.mimir-dock__invocation {
+  margin: 8px 0 0;
+  color: var(--mimir-muted);
+}
+
+.mimir-turn {
+  position: relative;
+  margin: 0 0 16px;
+  padding-left: 12px;
+}
+
+.mimir-turn::before {
+  content: '';
+  position: absolute;
+  top: 0.4em;
+  left: 0;
+  width: 2px;
+  height: 1em;
+  border-radius: 2px;
+  background: var(--mimir-rule);
+}
+
+.mimir-turn--assistant::before {
+  background: var(--mimir-mark);
+}
+
+.mimir-turn__body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mimir-turn__body code {
+  padding: 0.1em 0.32em;
+  border-radius: 3px;
+  background: var(--b3-theme-surface, #f2ead6);
+  font-family: var(--b3-font-family-code, ui-monospace, Menlo, monospace);
+  font-size: 0.88em;
+}
+
+.mimir-turn__body a {
+  color: var(--mimir-mark);
+  text-underline-offset: 2px;
+}
+
+/* A working mark on the page, not a spinner. */
+.mimir-turn[data-busy='true'] .mimir-turn__body::after {
+  content: '▍';
+  margin-left: 2px;
+  color: var(--mimir-mark);
+  animation: mimir-blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes mimir-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* --------------------------------------------------------------- the composer */
+
+.mimir-dock__composer {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  padding: 8px 10px 12px;
+  border-top: 1px solid var(--mimir-rule);
+}
+
+.mimir-dock__composer textarea {
+  flex: 1;
+  min-height: 34px;
+  max-height: 160px;
+  padding: 7px 9px;
+  border: 1px solid var(--mimir-rule);
+  border-radius: 4px;
+  background: var(--b3-theme-surface, #f2ead6);
+  color: var(--mimir-ink);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+}
+
+.mimir-dock__composer textarea:focus {
+  border-color: var(--mimir-mark);
+}
+
+.mimir-dock__send {
+  padding: 7px 12px;
+  border: 1px solid var(--mimir-mark);
+  border-radius: 4px;
+  background: var(--mimir-mark);
+  color: var(--mimir-paper);
+  font-family: var(--b3-font-family-code, ui-monospace, Menlo, monospace);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.mimir-dock__send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

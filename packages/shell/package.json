@@ -2,7 +2,7 @@
   "name": "@mimir/shell",
   "version": "0.1.0",
   "private": true,
-  "description": "The Mimir Electron shell: one window holding the vault and the teacher.",
+  "description": "The Mimir shell: one window holding the vault (a SiYuan kernel) and the teacher (the runtime bridge).",
   "license": "MIT",
   "type": "module",
   "main": "main.cjs",
