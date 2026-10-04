@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the Mimir shell and everything it starts.
+
+  The application spawns two child processes — the SiYuan kernel and the runtime
+  bridge — and both need to be allowed under the hardened runtime. Without
+  `allow-unsigned-executable-memory` and `allow-jit` the V8 inside Electron dies
+  at start-up; without `disable-library-validation` the child processes cannot
+  load the libraries beside them, because they are signed by nobody.
+
+  These are the minimum that let a signed build run. They are not a claim about
+  the sandbox: this application is not sandboxed, because it has to run a kernel
+  and write notes to a folder the learner chooses.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+  </dict>
+</plist>

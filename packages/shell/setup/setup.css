@@ -152,3 +152,34 @@ select.field__input {
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* ------------------------------------------------------------------ branding
+ *
+ * The mark above the wordmark. Two files, swapped by the system's appearance,
+ * because the light mark is near-black and would vanish on a dark sheet.
+ */
+.mark {
+  display: block;
+  margin: 0 0 14px;
+  image-rendering: pixelated;
+}
+
+@media (prefers-color-scheme: dark) {
+  .mark {
+    content: url('art/mark-light.png');
+  }
+
+  :root {
+    --paper: #06070d;
+    --paper-2: #0b0e18;
+    --paper-3: #121724;
+    --ink: #dbeaf2;
+    --ink-2: #9db8c6;
+    --ink-3: #7f9dad;
+    --rule: #182031;
+    --line: #2a3550;
+    --mark: #8fd6a4;
+    --mark-soft: #1e3830;
+    --peach: #f0b183;
+  }
+}

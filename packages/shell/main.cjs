@@ -51,18 +51,39 @@ function resourcesRoot() {
  */
 function resolvePaths() {
   const root = resourcesRoot()
+  const packaged = app.isPackaged
+  // The two layouts differ because a bundle is read-only and a repository is
+  // not: `extraResources` puts the harness and the plugin under `app/`, while
+  // in the repository they sit where they are worked on.
+  const appDir = packaged ? join(root, 'app') : root
   return {
     dshHome: process.env.MIMIR_DSH_HOME ?? join(app.getPath('userData'), 'harness-home'),
     vault: process.env.MIMIR_VAULT ?? join(app.getPath('userData'), 'vault'),
-    profileSource: join(root, 'profile'),
-    pluginSource: join(root, 'siyuan-plugin'),
+    profileSource: join(appDir, 'profile'),
+    // The dock is application code, not part of the harness: it ships beside
+    // the bridge and is installed into the vault's plugin directory on first
+    // run. Keeping one copy means the plugin that runs is the one that was
+    // built, with no second copy to fall out of step.
+    pluginSource: join(appDir, 'siyuan-plugin'),
+    bridgeEntry: packaged
+      ? join(appDir, 'packages', 'bridge', 'bin.mjs')
+      : join(root, 'packages', 'bridge', 'bin.mjs'),
+    bridgeCwd: appDir,
   }
 }
 
-/** Where a SiYuan kernel binary might be. Packaged builds carry their own. */
+/**
+ * Where the SiYuan kernel is.
+ *
+ * A packaged build carries the whole application, because "download one thing"
+ * is the point and a learner should not have to install an editor to be taught.
+ * In development the kernel is taken from wherever it is already installed, so
+ * that working on the app does not require vendoring 260 MB.
+ */
 function findKernel() {
   const candidates = [
-    join(resourcesRoot(), 'kernel', 'SiYuan-Kernel'),
+    join(resourcesRoot(), 'siyuan', 'Contents', 'Resources', 'kernel', 'SiYuan-Kernel'),
+    join(resourcesRoot(), 'siyuan', 'SiYuan-Kernel'),
     '/Applications/SiYuan.app/Contents/Resources/kernel/SiYuan-Kernel',
     '/opt/homebrew/bin/siyuan',
     '/usr/local/bin/siyuan',
@@ -209,27 +230,26 @@ async function startVault(paths) {
 
 function startBridge(paths) {
   return new Promise((resolve, reject) => {
-    const entry = join(repoRoot, 'packages', 'bridge', 'bin.mjs')
-    const child = spawn(process.execPath, [entry, '--dsh-home', paths.dshHome, '--vault', paths.vault, '--eager'], {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        // Electron's binary is not a Node runtime for the child unless told to
-        // be. This runs the bridge on the bundled Node, so the app never needs
-        // one on the user's PATH.
-        ELECTRON_RUN_AS_NODE: '1',
-        MIMIR_SIYUAN_URL: vaultAccess.baseUrl,
-        MIMIR_SIYUAN_TOKEN: vaultAccess.token,
-        MIMIR_VAULT: paths.vault,
-        // Where the harness finds the teaching method. The profile is copied
-        // to a harness home at run time, so its location is not knowable when
-        // the profile's own configuration is written — it is passed here.
-        MIMIR_PROFILE_DIR: join(paths.dshHome, 'profiles', 'mimir'),
+    const child = spawn(
+      process.execPath,
+      [paths.bridgeEntry, '--dsh-home', paths.dshHome, '--vault', paths.vault, '--eager'],
+      {
+        cwd: paths.bridgeCwd,
+        env: {
+          ...process.env,
+          // Electron's binary is not a Node runtime for the child unless told
+          // to be. This runs the bridge on the bundled Node, so the app never
+          // needs one on the user's PATH.
+          ELECTRON_RUN_AS_NODE: '1',
+          MIMIR_SIYUAN_URL: vaultAccess.baseUrl,
+          MIMIR_SIYUAN_TOKEN: vaultAccess.token,
+          MIMIR_VAULT: paths.vault,
+        },
+        // stdin stays open and owned: the bridge treats EOF on it as "the
+        // window is gone", so a bridge whose shell died still reaps itself.
+        stdio: ['pipe', 'pipe', 'pipe'],
       },
-      // stdin stays open and owned: the bridge treats EOF on it as "the window
-      // is gone", so a bridge whose shell died still reaps itself.
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
+    )
     children.bridge = child
 
     let buffered = ''

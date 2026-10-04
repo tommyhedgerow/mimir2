@@ -18,6 +18,8 @@ const RPC_METHODS = new Set([
   'session.get',
   'session.prompt',
   'vault.find',
+  'vault.backlinks',
+  'vault.link',
 ])
 
 /**
@@ -184,6 +186,10 @@ async function dispatch(bridge, method, params, kernel) {
       return bridge.prompt(params.sessionId, params.text)
     case 'vault.find':
       return findDocument(kernel, String(params?.title ?? ''))
+    case 'vault.backlinks':
+      return backlinksFor(kernel, String(params?.title ?? ''))
+    case 'vault.link':
+      return resolveWikilinks(kernel, String(params?.docId ?? ''))
     default:
       throw new Error(`unhandled method: ${method}`)
   }
@@ -230,5 +236,229 @@ async function findDocument(kernel, title) {
   } catch (error) {
     process.stderr.write(`vault.find: ${error.message}\n`)
     return []
+  }
+}
+
+/**
+ * Which notes refer to this one, for a `[[wikilink]]` the learner clicked.
+ *
+ * Two sources, because SiYuan holds a reference two ways and neither covers
+ * both. Its `refs` table indexes *native* references — a wikilink that was
+ * resolved to a block id when it was written — and that is the precise answer
+ * whenever it exists. A `[[wikilink]]` that arrived as markdown text is not in
+ * that table, so the text is also searched for. The search can over-match a
+ * note that merely mentions the phrase, so results carry which they were.
+ *
+ * @param {{ baseUrl: string, token: string }} kernel
+ * @param {string} title
+ */
+async function backlinksFor(kernel, title) {
+  if (!kernel.baseUrl) {
+    process.stderr.write('vault.backlinks: no kernel address is configured\n')
+    return []
+  }
+  const wanted = title.trim()
+  if (!wanted) return []
+
+  const target = await findDocument(kernel, wanted)
+  const targetId = target.length ? target[0].id : ''
+
+  /** @type {Map<string, {path: string, title: string, via: string}>} */
+  const seen = new Map()
+
+  // 1. SiYuan's own reference index. Precise, and the only source that knows a
+  //    reference from a passing mention.
+  if (targetId) {
+    const rows = await query(
+      kernel,
+      'SELECT b.hpath AS source, b.content AS sourceTitle ' +
+        'FROM refs r JOIN blocks b ON b.id = r.root_id ' +
+        `WHERE r.def_block_root_id = '${escapeSql(targetId)}'`,
+    )
+    for (const row of rows) {
+      const path = String(row.source ?? '')
+      if (path) seen.set(path, { path, title: String(row.sourceTitle ?? ''), via: 'reference' })
+    }
+  }
+
+  // 2. Wikilinks that arrived as markdown text. SiYuan does not index those as
+  //    references, so the text is searched. This can match a note that merely
+  //    writes the phrase, which is why each result says how it was found.
+  const found = await search(kernel, `[[${wanted}`)
+  for (const block of found) {
+    // A search hit is a *block*, and `hPath` is the path of the document the
+    // block sits in — which for a heading or a list item is a synthetic child
+    // document, not the note a reader would open. The note is found by
+    // resolving the block that contains it: `rootID` for a normal block, the
+    // hit itself when the hit is already a document.
+    const holder = String(block.rootID ?? '') || String(block.id ?? '')
+    if (!holder || holder === targetId) continue
+    const note = await documentFor(kernel, holder)
+    const path = note.path || String(block.hPath ?? '')
+    if (!path || seen.has(path)) continue
+    seen.set(path, {
+      path,
+      title: note.title || stripMarks(String(block.content ?? '')).slice(0, 120),
+      via: 'mention',
+    })
+  }
+
+  return [...seen.values()]
+}
+
+/** The document a block belongs to: its path and its title. */
+async function documentFor(kernel, blockId) {
+  const rows = await query(
+    kernel,
+    "SELECT b.hpath AS path, b.content AS title FROM blocks b " +
+      `WHERE b.id = (SELECT root_id FROM blocks WHERE id = '${escapeSql(blockId)}') ` +
+      "AND b.type = 'd'",
+  )
+  const row = rows[0]
+  return row
+    ? { path: String(row.path ?? ''), title: String(row.title ?? '') }
+    : { path: '', title: '' }
+}
+
+/** Full-text search marks its hits with <mark> tags; they are not content. */
+function stripMarks(text) {
+  return text.replace(/<\/?mark>/g, '')
+}
+
+/** Full-text search, returning matching blocks. Empty when unavailable. */
+async function search(kernel, keyword) {
+  try {
+    const response = await fetch(`${kernel.baseUrl}/api/search/fullTextSearchBlock`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Token ${kernel.token}` },
+      body: JSON.stringify({ query: keyword, page: 1, pageSize: 32 }),
+      signal: AbortSignal.timeout(10000),
+    })
+    const payload = await response.json().catch(() => null)
+    if (!payload || payload.code !== 0) return []
+    return (payload.data?.blocks ?? []).map((block) => ({
+      id: block.id,
+      content: block.content,
+      hPath: block.hPath,
+      rootID: block.rootID,
+      parentID: block.parentID,
+    }))
+  } catch {
+    return []
+  }
+}
+
+/** Runs a read-only query, returning rows or nothing. */
+async function query(kernel, stmt) {
+  try {
+    const response = await fetch(`${kernel.baseUrl}/api/query/sql`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Token ${kernel.token}` },
+      body: JSON.stringify({ stmt }),
+      signal: AbortSignal.timeout(10000),
+    })
+    const payload = await response.json().catch(() => null)
+    if (!payload || payload.code !== 0) {
+      process.stderr.write(`vault query refused: ${payload?.msg ?? 'no reply'}\n`)
+      return []
+    }
+    return payload.data ?? []
+  } catch (error) {
+    process.stderr.write(`vault query failed: ${error.message}\n`)
+    return []
+  }
+}
+
+/** Escapes a value for the kernel's read-only SQL endpoint. */
+function escapeSql(value) {
+  return String(value).replace(/'/g, "''")
+}
+
+/**
+ * Turns `[[wikilinks]]` in a document into SiYuan's own references.
+ *
+ * A wikilink written as markdown stays plain text: SiYuan does not index it, so
+ * nothing can say which notes refer to this one, and clicking one has nothing to
+ * open. Converting it to `((blockId 'title'))` makes the reference real — it
+ * appears in the reference index, in the graph, and in SiYuan's backlink panel.
+ *
+ * This is what makes backlinks possible at all. Without it the only way to find
+ * a referring note is to search for the phrase, which cannot tell a reference
+ * from a mention.
+ *
+ * @param {{ baseUrl: string, token: string }} kernel
+ * @param {string} docId
+ */
+async function resolveWikilinks(kernel, docId) {
+  if (!kernel.baseUrl || !docId) return { converted: 0 }
+
+  const exported = await kernelCall(kernel, '/api/export/exportMdContent', { id: docId })
+  const markdown = exported?.code === 0 ? String(exported.data?.content ?? '') : ''
+  if (!markdown) return { converted: 0 }
+
+  const pattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g
+  const targets = new Set()
+  for (const match of markdown.matchAll(pattern)) targets.add(match[1].trim())
+  if (targets.size === 0) return { converted: 0 }
+
+  // Resolve every target first. `String.replace` is synchronous and finding a
+  // document is not, so the lookups cannot happen inside the replacement.
+  const resolutions = new Map()
+  for (const target of targets) {
+    const found = await findDocument(kernel, target)
+    const exact = found.find((doc) => doc.title === target) ?? found[0]
+    if (exact) resolutions.set(target, exact)
+  }
+  if (resolutions.size === 0) return { converted: 0 }
+
+  let converted = 0
+  const next = markdown.replace(pattern, (whole, rawTarget, label) => {
+    const target = rawTarget.trim()
+    const match = resolutions.get(target)
+    // Leave unresolvable links alone: a link to a note that does not exist yet
+    // is a note to write, not an error to erase.
+    if (!match) return whole
+    converted += 1
+    const text = (label ?? match.title ?? target).trim()
+    return `((${match.id} '${text.replace(/'/g, "")}'))`
+  })
+
+  if (converted === 0) return { converted: 0 }
+
+  await kernelCall(kernel, '/api/block/updateBlock', {
+    dataType: 'markdown',
+    data: next,
+    id: docId,
+  })
+  await flush(kernel)
+  return { converted }
+}
+
+/** One kernel call. Returns the parsed reply, or null when it did not answer. */
+async function kernelCall(kernel, path, body) {
+  try {
+    const response = await fetch(`${kernel.baseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Token ${kernel.token}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
+    })
+    return await response.json().catch(() => null)
+  } catch {
+    return null
+  }
+}
+
+/** The kernel's own wait for its index to catch up with a write. */
+async function flush(kernel) {
+  try {
+    await fetch(`${kernel.baseUrl}/api/sqlite/flushTransaction`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Token ${kernel.token}` },
+      body: '{}',
+      signal: AbortSignal.timeout(10000),
+    })
+  } catch {
+    // Older kernels do not expose it.
   }
 }

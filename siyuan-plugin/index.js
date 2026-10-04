@@ -278,6 +278,7 @@ class MimirDock extends Plugin {
     element.classList.add('mimir-dock')
     element.innerHTML = `
       <div class="mimir-dock__rail">
+        <img class="mimir-dock__mark" src="/plugins/mimir/mark.png" alt="" width="14" height="14" />
         <span class="mimir-dock__model" data-role="model">connecting…</span>
         <button class="mimir-dock__btn" data-role="new" title="Start a new conversation">new</button>
       </div>
@@ -344,6 +345,82 @@ class MimirDock extends Plugin {
     if (!blocks.length) return
     for (const block of blocks) body.append(this.block(block))
     this.diagrams(body)
+  }
+
+  /**
+   * Shows which notes refer to a target, in place of the conversation.
+   *
+   * This is what a wikilink is *for* in a vault: the link goes one way and the
+   * backlinks come back the other. The dock cannot open two things at once, so
+   * the panel takes the stream and gives it back.
+   */
+  async showBacklinks(target) {
+    if (!this.el) return
+    const stream = this.el.stream
+    this.savedStream = stream.innerHTML
+
+    stream.textContent = ''
+    const panel = document.createElement('div')
+    panel.className = 'mimir-backlinks'
+
+    const heading = document.createElement('h4')
+    heading.className = 'mimir-backlinks__title'
+    heading.textContent = `Notes that refer to ${target}`
+    panel.append(heading)
+
+    const back = document.createElement('button')
+    back.className = 'mimir-backlinks__back'
+    back.textContent = '← back to the lesson'
+    back.addEventListener('click', () => {
+      stream.innerHTML = this.savedStream ?? ''
+      this.el.input.focus()
+    })
+    panel.append(back)
+
+    stream.append(panel)
+
+    let rows = []
+    try {
+      rows = (await this.rpc('vault.backlinks', { title: target })) || []
+    } catch (error) {
+      rows = []
+    }
+
+    if (!rows.length) {
+      const empty = document.createElement('p')
+      empty.className = 'mimir-backlinks__empty'
+      empty.textContent = 'Nothing refers to this yet.'
+      panel.append(empty)
+      return
+    }
+
+    const list = document.createElement('ul')
+    list.className = 'mimir-backlinks__list'
+    for (const row of rows) {
+      const item = document.createElement('li')
+      const link = document.createElement('a')
+      link.className = 'mimir-backlinks__link'
+      link.textContent = row.title || row.path
+      link.title = row.path
+      link.addEventListener('click', async (event) => {
+        event.preventDefault()
+        try {
+          const found = await this.rpc('vault.find', { title: row.title || target })
+          const match = (found || [])[0]
+          if (match) openTab({ app: this.app, doc: { id: match.id, title: match.title, hPath: match.path } })
+        } catch (error) {
+          showMessage('Mimir: could not open that note', 4000)
+        }
+      })
+      item.append(link)
+      // How the link was found, so a passing mention is not read as a citation.
+      const via = document.createElement('span')
+      via.className = `mimir-backlinks__via mimir-backlinks__via--${row.via}`
+      via.textContent = row.via === 'reference' ? 'refers' : 'mentions'
+      item.append(via)
+      list.append(item)
+    }
+    panel.append(list)
   }
 
   /** One block node, as an element. */
@@ -505,22 +582,14 @@ class MimirDock extends Plugin {
     link.dataset.target = run.target
     link.textContent = run.text
     link.title = run.target
+    // Clicking shows what refers to the note; the note itself is one click
+    // further on. In a vault the interesting direction is usually backwards:
+    // "what else is about this?" is the question a link provokes.
     link.addEventListener('click', async (event) => {
       event.preventDefault()
       link.classList.add('mimir-wikilink--looking')
       try {
-        // The name has to become an id before SiYuan can open it, and the
-        // lookup needs the kernel's token — which lives in the bridge, not
-        // here. So the surface asks, and never holds a credential itself.
-        const found = await this.rpc('vault.find', { title: run.target })
-        const match = (found || [])[0]
-        if (!match) {
-          showMessage(`Mimir: no note called “${run.target}” yet`, 4000)
-          return
-        }
-        openTab({ app: this.app, doc: { id: match.id, title: match.title, hPath: match.path } })
-      } catch (error) {
-        showMessage(`Mimir: could not open “${run.target}”`, 4000)
+        await this.showBacklinks(run.target)
       } finally {
         link.classList.remove('mimir-wikilink--looking')
       }

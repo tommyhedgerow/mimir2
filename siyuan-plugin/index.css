@@ -42,6 +42,7 @@
 }
 
 .mimir-dock__model {
+  flex: 1;
   overflow: hidden;
   color: var(--mimir-muted);
   text-overflow: ellipsis;
@@ -319,4 +320,108 @@ h6.mimir-h { font-size: 0.94em; color: var(--mimir-muted); }
   color: var(--mimir-muted);
   font-family: var(--b3-font-family-code, ui-monospace, Menlo, monospace);
   font-size: 0.78em;
+}
+
+/* ------------------------------------------------------------------ backlinks
+ *
+ * Shown in place of the conversation when a wikilink is clicked: the link goes
+ * one way, and these are the notes that come back the other.
+ */
+
+.mimir-backlinks {
+  padding: 4px 2px;
+}
+
+.mimir-backlinks__title {
+  margin: 0 0 10px;
+  font-size: 0.94em;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mimir-backlinks__back {
+  margin-bottom: 14px;
+  padding: 3px 9px;
+  border: 1px solid var(--mimir-rule);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--mimir-muted);
+  font-family: var(--b3-font-family-code, ui-monospace, Menlo, monospace);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.mimir-backlinks__back:hover {
+  border-color: var(--mimir-mark);
+  color: var(--mimir-mark);
+}
+
+.mimir-backlinks__empty {
+  margin: 0;
+  color: var(--mimir-muted);
+}
+
+.mimir-backlinks__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mimir-backlinks__list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--mimir-rule);
+}
+
+.mimir-backlinks__link {
+  flex: 1;
+  color: var(--mimir-mark);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.mimir-backlinks__link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* How it was found: a citation is not the same as a passing mention, and the
+   difference matters when you are deciding what to read next. */
+.mimir-backlinks__via {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--b3-font-family-code, ui-monospace, Menlo, monospace);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mimir-backlinks__via--reference {
+  background: color-mix(in srgb, var(--mimir-mark) 16%, transparent);
+  color: var(--mimir-mark);
+}
+
+.mimir-backlinks__via--mention {
+  background: var(--b3-theme-surface, #f2ead6);
+  color: var(--mimir-muted);
+}
+
+/* The mark in the rail, sized to the monospace furniture around it. */
+.mimir-dock__mark {
+  flex: none;
+  image-rendering: pixelated;
+  opacity: 0.85;
+}
+
+/* The dock's own light/dark follows SiYuan's theme, so the dark mark is chosen
+   when SiYuan is in dark mode rather than by the system appearance. */
+[data-theme-mode='dark'] .mimir-dock__mark,
+.b3-theme-dark .mimir-dock__mark {
+  content: url('/plugins/mimir/mark-light.png');
 }
