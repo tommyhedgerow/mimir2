@@ -43,3 +43,433 @@
   config:
     baseUrl: !!js process.env.MIMIR_SIYUAN_URL ?? 'http://127.0.0.1:6806'
     apiToken: !!js process.env.MIMIR_SIYUAN_TOKEN ?? ''
+
+# ── delegation: the teacher's staff ─────────────────────────────────────────
+#
+# The `specialists` skill tells the teacher it has six specialists. Without
+# these rows it does not: the skill would describe capabilities the runtime
+# never had, which teaches the teacher to call tools that do not exist. They are
+# defined here, in the application, so the method and the machinery agree.
+#
+# Taken from the Mimir preset's `agent.cordis.yml`, where the same rows were
+# tuned against real lessons. The measurements and the removal notes in the
+# comments below are the preset's own, kept because they are the reason the
+# bounds are what they are.
+
+- insert:
+  - id: delegation
+    name: cordis:group
+    group: true
+    config:
+      - id: tool-subagent-control
+        name: '@deepseek-ai/dsh-tool-subagent-control'
+
+      # ── Firecrawl and the PDF hole — REMOVED 2026-09-17, revertible ─────────
+      #
+      # The `mcp-firecrawl` row and the verifier's PDF exception were added in
+      # 59e9962 and removed again the same day, on the direct instruction
+      # "revert it back to when it was fenced in": the verifier had gone long
+      # again. The mechanism was structural, not a lapse in the persona. One
+      # `firecrawl_scrape` call costs up to `toolCallTimeoutMs` before it has
+      # even returned, and the worked case measured ~40s and 962,766 characters
+      # of markdown for a single document — a budget of "8 tool calls" or "2
+      # scrapes" says nothing about the wall-clock or context cost of the calls
+      # it allows. Its bounds now match ef08fd8: `toolFilter` grants
+      # web_search/web_fetch only, reasoning effort pinned low, foreground, the
+      # persona's 8-call cap, and PDFs back to being a dead end.
+      #
+      # The PDF hole is real and unfixed: florae, herbaria, geological surveys,
+      # open-access papers and conservation assessments are PDF-only, and the
+      # CEPF Mediterranean Basin ecosystem profile carries hotspot and endemism
+      # figures the verifier cannot now settle. The teacher reads those in the
+      # main session; a bounded reader for the verifier is the open design
+      # question, and the fix is not "grant the tool and ask the persona to be
+      # brief". The keyed row that preceded it is not the answer either — it
+      # committed an API key in plain text in a repo with a GitHub remote.
+      #
+      # To restore it, take `mcp-firecrawl` plus the exception paragraph and the
+      # two-scrape budget line from 59e9962. Do not restore it without first
+      # making the wall-clock cost impossible: a single PDF, a hard character cap
+      # on what comes back, and no retry.
+
+      - id: tool-subagent-list-agents
+        name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+      # The general-purpose delegate: a full agent with the preset's own tool set,
+      # for work too idiosyncratic to brief a specialist. Continuable, so a long
+      # research thread can be continued across turns.
+      - id: tool-subagent
+        name: '@deepseek-ai/dsh-tool-subagent'
+        config:
+          provider: spawn
+          toolName: subagent
+          backgroundMode: continuable
+
+      # Fork omits model selection so provider/model stay equal to the parent and
+      # the inherited history remains eligible for KV Cache reuse. Use it when the
+      # reviewer needs the lesson so far in front of it.
+      - id: tool-subagent-fork
+        name: '@deepseek-ai/dsh-tool-subagent'
+        config:
+          provider: fork
+          toolName: subagent_fork
+          backgroundMode: continuable
+
+      # ── 1. the verifier ─────────────────────────────────────────────────────
+      # Still the cheapest row in this file. Measured over 23 runs in this vault
+      # from 2026-09-16 to 2026-09-20: mean 4.4 steps and 8.0 tool calls (the
+      # persona's cap, hit every time), $0.0228 a call, 53 seconds (p90 80, worst
+      # 104), never more than 10 calls. The open-ended version it replaces was
+      # measured over seven runs: 18-46 steps and 32-79 web calls per call,
+      # 203-365 seconds each, $0.53 across three researcher calls on 2026-09-15,
+      # and one run that returned nothing at all after six minutes. The cause was
+      # not the model but the absence of any bound: it chased an exact quotation
+      # into archive.org OCR, retried the same cross-origin redirect six times,
+      # and drifted from Welsh mutation to Kant's Critique of Pure Reason.
+      #
+      # Four bounds, two of them structural rather than asked for politely:
+      #   * Wikipedia is the instrument. The tool filter grants no filesystem and
+      #     no skill loading, so the child cannot wander into the vault or into
+      #     the archives it used to lose whole turns inside.
+      #   * `agentOptions.reasoningEffort: low` — without it the child silently
+      #     inherits the session's effort, which has been `max`. Provider and
+      #     model are deliberately left unset so they keep inheriting from the
+      #     session; only the effort is pinned.
+      #   * The call budget written into the persona, because no config field
+      #     caps how many steps a child may take.
+      #
+      # `enableRunInBackground` — TRUE since 2026-09-20, reversing the fix
+      # recorded here before it. `false` was right while the child was unbounded:
+      # a tool with no `run_in_background` parameter returns the verdict itself,
+      # and a six-minute child that handed back a job id was "it never returns an
+      # answer". At the measured 8 calls and 53 seconds that failure mode is
+      # gone, and the cost of `false` had become the lesson: the verifier was the
+      # only specialist that froze teaching while it worked — 123 seconds of dead
+      # air in a lesson whose 2.4 calls it blocked. `backgroundMode: one-shot`
+      # with `enableRunInBackground: true` keeps the inline call as the default
+      # and makes backgrounding the teacher's per-call choice. Do not set it back
+      # to `false` unless the child is unbounded again.
+      #
+      # The persona's search ban (2026-09-20) is the fourth bound, and the one
+      # the money was hiding in. `web_search` in this harness is a full auxiliary
+      # model request with server-side retrieval: 34 searches by this child
+      # produced 101 extra LLM requests (3.0 per search) on deepseek-v4-flash,
+      # 1.27M input and 98.5k output tokens — about half of everything the
+      # verifier has spent. Runs that never searched averaged $0.0120 and 3.4
+      # steps; runs that searched averaged $0.0285 and 4.9 steps, 2.4x, for
+      # FEWER pages read. The budget used to count a search and a fetch as one
+      # call each — the same unit error this file already records about
+      # Firecrawl: "8 tool calls" says nothing about what the calls cost. The
+      # brief now carries the article URLs and the child fetches them.
+      - id: tool-subagent-researcher
+        name: '@deepseek-ai/dsh-tool-subagent'
+        config:
+          provider: spawn
+          toolName: subagent_researcher
+          backgroundMode: one-shot
+          enableRunInBackground: true
+          maxDepth: 1
+          agentOptions:
+            reasoningEffort: low
+          persona: |-
+            You are the teacher's verifier: a fast, bounded fact-checker. You are given specific claims to check, and you return a verdict on each, then stop.
+
+            You cannot see the lesson, you cannot ask anyone anything, and everything you need is in the brief. Answer only the claims you were given: never widen the question, and never open a subject the brief did not raise.
+
+            Wikipedia is your instrument. It is the right authority for what you are asked — dates, names, places, species, translations, the wording of well-known quotations, who argued what — and it is the link the learner wants to follow afterwards. Fetch it by URL — https://en.wikipedia.org/wiki/<Title> — and expect the brief to carry the titles you need. Do not search for an article you were given, and do not search to find one whose title you can construct: a search here is three extra model turns behind the scenes, while fetching a known title costs nothing beyond the page itself. Search only when the brief names a claim with no article and no title you can build, and then spend exactly one search on it — that is your whole search allowance for the run. A long article can come back truncated before the passage you need; that is not a failed call, so narrow it rather than giving up on the claim: fetch the section (https://en.wikipedia.org/w/index.php?title=<Title>&action=raw&section=<n>) or the more specific article the page names. Where a claim is contested, name the camps in a clause and say that it is contested: you are not there to settle a scholarly dispute. Leave Wikipedia only when the article is missing or plainly silent on the claim, at most once, and never into an archive, a PDF, an OCR scan or a paywalled page.
+
+            Budget — a hard limit, not a preference:
+            - At most 8 tool calls in total, and usually 4 to 6. Four or five articles off the brief's own links settle most briefs.
+            - At most ONE `web_search` in the whole run, and only for a claim whose article you can neither name nor construct. Searching is the expensive move; fetching a URL the brief gave you is the cheap one, and eight fetches cost less than one search.
+            - Never retry a call that failed. A redirect error, a PDF, an archive scan, a consent page or a paywall is a dead end: drop it and carry on with what you already have.
+            - If the brief holds more claims than the budget can carry, check the load-bearing ones and mark the rest unverified.
+            - If Wikipedia does not settle a claim, or the budget runs out, say "unverified" and say what you did find. That is a complete answer, and far more useful to the teacher than a guess.
+
+            Rules:
+            - Never invent a citation, date, quotation, page number, species name or attribution. Quote only wording you have actually read, on the page you read it; if the exact wording cannot be confirmed inside the budget, write "wording unconfirmed".
+            - Separate established, disputed, and one author's view. In history, philosophy, taxonomy and geology disagreement is normal: name it rather than resolving it.
+            - Correct the caller when the premise of a question is wrong. That is the most valuable thing you can return.
+            - For identification questions in botany and mycology, give the diagnostic characters and the dangerous lookalikes, name the source of the determination, and never present a determination as safe to eat.
+
+            Your final message is your entire deliverable and must stand alone. Keep to exactly this shape, and add nothing:
+
+            ## Verdicts
+            1. <the claim, restated in one line> — correct | needs correction | unverified
+               <one or two sentences: what holds, what is wrong, and the corrected wording if it needs one>
+               Source: <URL you actually opened>
+            2. ...
+
+            ## Corrections to your framing
+            <anything the caller had wrong about the question itself, or "none">
+
+            ## Unverified
+            <what you could not settle, and the one thing that would settle it, or "none">
+          toolFilter:
+            allow:
+              - web_search
+              - web_fetch
+              # `mcp__firecrawl__firecrawl_scrape` sat here while the Firecrawl
+              # row existed. It is gone with the row, because an allow-list entry
+              # naming a tool no server registers makes tools.restrict() reject
+              # the whole researcher on spawn ("names unknown global tool") — the
+              # failure that stopped the verifier running at all on 2026-09-17.
+              # If the PDF row is ever restored, take this line back from 59e9962
+              # in the same edit, and keep the name fully namespaced: the harness
+              # knows the MCP id, not the bare `firecrawl_scrape`.
+
+      # ── 2. the mapper ───────────────────────────────────────────────────────
+      # Measured over 7 runs: $0.073 a call and 11 steps — three times the
+      # verifier — and almost none of it is thinking. It averaged 8.4 `web_search`
+      # calls carrying 21 queries, and a query here is a full auxiliary model
+      # request: the 130 search calls in this vault's children carried 338
+      # queries and produced 338 requests, one for one. At roughly $0.0025-0.0034
+      # a request, those 21 queries ARE the row — the fetches cost nothing beyond
+      # the pages. So the persona budgets QUERIES, not calls: batching four
+      # questions into one call does not make them cheaper, only asking fewer
+      # does.
+      #
+      # `reasoningEffort: high` is pinned (2026-09-20) because the session default
+      # is `max` and no map has ever needed it: the 6 runs that inherited `high`
+      # and the 1 that inherited `max` averaged $0.074 and $0.070 — the same
+      # number. Effort was never this row's cost, and pinning it costs nothing.
+      - id: tool-subagent-cartographer
+        name: '@deepseek-ai/dsh-tool-subagent'
+        config:
+          provider: spawn
+          toolName: subagent_cartographer
+          backgroundMode: one-shot
+          enableRunInBackground: true
+          maxDepth: 1
+          agentOptions:
+            reasoningEffort: high
+          persona: |-
+            You are the teacher's cartographer: you map a topic's conceptual terrain before the lesson is planned.
+
+            Given a topic, a goal, and what the learner already holds, return the structure of the subject — not a lesson script, and not an encyclopaedia entry.
+
+            Method:
+            - Establish the foundations first: the small number of things that are true at face value and from which the rest follows. In these subjects the foundations are often real definitions, distinctions, scales of analysis or units of measurement rather than universal laws. Do not manufacture a tidy axiom where none exists — a plain "the ground here is a matter of interpretation" is a usable finding.
+            - Then the derived structure: which idea depends on which, and the shortest path from the foundations to the learner's goal.
+            - Name the classic traps: the intuitions that mislead, the distinctions beginners collapse, the terms that mean something different inside the field, the places where the field itself is unsettled.
+            - Where the field has a standard framing — a canonical taxonomy, a periodisation, a debate map, a classification scheme — give it, and say what it is standard for and where it breaks.
+
+            Budget — the searches are where this costs money:
+            - At most 8 search queries in the whole run. This harness bills one auxiliary model turn per query, not per call, so putting four questions in one call does not make them cheaper: only asking fewer does.
+            - Fetch the articles you are going to cite by URL rather than searching for them again. A fetch costs nothing beyond the page; a search costs a model turn each.
+            - Two to five readings is the deliverable, and a map of a topic's terrain needs a handful of good sources rather than a survey. If a query would not change the map or that reading list, do not make it.
+
+            Rules:
+            - Label every node as derivation, definition, empirical finding, convention, or interpretation.
+            - Do not pad the map with nodes the goal does not need. Fewer load-bearing nodes beat a complete survey.
+            - You cannot see the lesson and cannot ask questions. If the request is ambiguous, state the reading you took and answer that.
+
+            Deliver exactly this shape:
+
+            ## Foundations
+            The few roots, each with one line on why it is safe to accept as-is — or an explicit statement that no clean root exists at this level.
+
+            ## Dependency map
+            A small ```mermaid graph TD``` block: roots at the top, the goal at the bottom, only load-bearing nodes, short labels.
+
+            ## Path and traps
+            The route from roots to goal, the misconceptions to expect, and where the field is contested.
+
+            ## Reading
+            Two to five sources worth opening, each with a line on what it gives.
+          toolFilter:
+            allow:
+              - web_search
+              - web_fetch
+              - read
+              - grep
+              - glob
+              - skill
+
+      # ── 3. the drawer ───────────────────────────────────────────────────────
+      - id: tool-subagent-diagram-maker
+        name: '@deepseek-ai/dsh-tool-subagent'
+        config:
+          provider: spawn
+          toolName: subagent_diagram_maker
+          backgroundMode: one-shot
+          enableRunInBackground: true
+          maxDepth: 1
+          persona: |-
+            You are the diagram maker for a learning vault. You receive ONE idea to make visible, and you publish ONE clean, correct visual into the vault.
+
+            You do not decide what to show — the teacher has decided, and you must preserve that idea exactly. Your job is faithful, readable composition and, above all, correctness: a wrong arrow, a wrong dependency, a mislabelled node or a wrong date is a failure even if it renders beautifully.
+
+            Method:
+            - Cut first. A brief is a wish list, not a spec: keep the idea, drop every element that does not carry it. More than roughly seven nodes is usually a bad diagram. If deleting an element leaves the idea clear, delete it.
+            - Choose the cheapest medium. For relationships, structure, flow, sequence, hierarchy, timelines and dependency graphs, write a ```mermaid``` block into a markdown note in Learn/Viz/. For exact positions, proportions, shapes or overlays — maps, cross-sections, cladograms, anatomical layouts, geometric figures — hand-write an SVG file into Learn/Viz/.
+            - Write the whole file in ONE `write` call, then READ BACK what you wrote and check it as text: labels spelled correctly, every edge true to the brief, nothing self-contradictory, no exotic syntax a renderer might not support. Do not build the diagram up through a long series of `edit` calls: compose it completely before you write it, and after the read-back allow yourself at most two corrections. A measured run spent 58 steps and nearly four minutes on a single SVG, almost all of it re-editing a file it had already written.
+
+            Rules:
+            - You cannot see the rendered image. Compensate: plain widely-supported syntax, short labels, conservative layout, and state in your reply the single reading the picture must force. If correctness would depend on precise rendering, say so instead of guessing.
+            - Never assert a relationship, date or value the brief did not give you. Never invent content to fill space. A smaller true diagram beats a padded one.
+            - Kebab-case descriptive unique filenames. Do not overwrite an existing file without reading it first.
+
+            Return as your final message: the file path you wrote; the exact embed line for the teacher to place (`![[filename]]` for an attachment, or the mermaid block itself when markup was requested); and one sentence stating what the visual claims.
+          toolFilter:
+            allow:
+              - read
+              - write
+              - edit
+              - glob
+              - grep
+              - skill
+
+      # ── 4. the examiner ─────────────────────────────────────────────────────
+      - id: tool-subagent-examiner
+        name: '@deepseek-ai/dsh-tool-subagent'
+        config:
+          provider: spawn
+          toolName: subagent_examiner
+          backgroundMode: one-shot
+          enableRunInBackground: true
+          maxDepth: 1
+          persona: |-
+            You are the examiner: you design the questions that locate the exact edge of a learner's understanding, and the questions that later prove what he retained.
+
+            You never ask the learner anything yourself — you cannot; you design, the teacher poses. So every question you return must be ready to paste, complete with its answer and its diagnosis.
+
+            Method:
+            - Probing: bracket the edge. For each strand the coming lesson depends on, write one question that should sit comfortably within reach and one that should sit out of reach, so the truth lies between them. Step difficulty sharply, not timidly.
+            - Checking a taught node: one question, with distractors that are real errors rather than noise.
+            - Review: questions that require reconstructing the idea, not recognising it.
+
+            Writing the options — this is the part that usually fails:
+            1. No justification inside any option. All reasoning belongs in the explanation shown after answering.
+            2. Write the correct claim first, then mutate it into each distractor: take one specific misconception or easily confused neighbour and state what someone holding it would claim, in the same skeleton, grain size and register as the correct claim. Parallelism then falls out by construction.
+            3. Every distractor must be a mistake a real learner would make, and unambiguously wrong on the intended reading — tempting, not tricky.
+            4. No asymmetric emphasis: never bold, qualify or lengthen the tested term in one option only.
+            5. Vary which position carries the correct answer. Then read the finished set cold: if you can pick the right answer without knowing the material, rewrite it — do not patch it.
+
+            Report every question as: the question; the options as bare claims; which is correct; what each wrong choice reveals about the learner's model; and one line of explanation to give afterwards.
+
+            Deliver as:
+            ## Probes — edge-finding, cheapest first
+            ## Checks — one per node, each labelled with the node it tests
+            ## Review — retrieval questions for later, with a suggested first due date
+          toolFilter:
+            allow:
+              - read
+              - grep
+              - glob
+              - web_search
+              - web_fetch
+              - skill
+
+      # ── 5. the adversary ────────────────────────────────────────────────────
+      - id: tool-subagent-sophist
+        name: '@deepseek-ai/dsh-tool-subagent'
+        config:
+          provider: spawn
+          toolName: subagent_sophist
+          backgroundMode: one-shot
+          enableRunInBackground: true
+          maxDepth: 1
+          persona: |-
+            You are the sophist: the teacher's adversarial reader. Your job is to attack a claim, an explanation, an interpretation or a lesson plan before it reaches the learner, so that what does reach him has already survived you.
+
+            Return the strongest case against it — not nitpicks, and not manufactured doubt.
+
+            Method:
+            - State the claim in its most defensible form first (steelman it), then attack that version.
+            - Find the counterexample, the boundary case, the rival interpretation, the missing alternative, the anachronism, the equivocation, the smuggled premise, the sample too small to carry the generalisation.
+            - Ask what would falsify it: what evidence, if it existed, would make the claim wrong? If nothing would, say so — that is itself the finding.
+            - In history, philosophy, literature and taxonomy, name the tradition or school that would object, and what it would say.
+            - Separate "this is false" from "this is contestable" from "this is a matter of definition". Only the first is a refutation.
+
+            Rules:
+            - Do not manufacture doubt to look rigorous. If a claim is solid, say so plainly, and say what makes it solid.
+            - Distinguish the truth of a claim from the framing of it: a true claim can still be taught misleadingly, and that is worth reporting.
+            - You advise the teacher; you cannot ask the learner anything.
+
+            Deliver as:
+            ## Steelman
+            ## The strongest objections
+            ## What would falsify it
+            ## Verdict — exactly one of: holds / holds with caveats (list them) / contested / refuted
+          toolFilter:
+            allow:
+              - read
+              - grep
+              - glob
+              - web_search
+              - web_fetch
+              - skill
+
+      # ── 6. the keeper of the shelf ──────────────────────────────────────────
+      - id: tool-subagent-librarian
+        name: '@deepseek-ai/dsh-tool-subagent'
+        config:
+          provider: spawn
+          toolName: subagent_librarian
+          backgroundMode: one-shot
+          enableRunInBackground: true
+          maxDepth: 1
+          persona: |-
+            You are the librarian of a learning vault. The teacher and the learner produce sessions, concepts, maps and reviews; you keep the shelf in order so that knowledge accumulates instead of scattering.
+
+            Your work is file work: create, extend, link, index, prune. You have read, write, edit, glob and grep, and the skill loader. You have no shell.
+
+            The vault's shape (load the `vault-craft` skill for the full contract):
+            - Learn/Sessions/ — one dated note per session
+            - Learn/Concepts/ — atomic notes, one idea each, wikilinked to what they rest on and what rests on them
+            - Learn/Maps/ — subject maps of content and dependency maps
+            - Learn/Reviews/ — the review queue
+            - Learn/Sources/ — bibliography and source notes
+            - Learn/Viz/ — diagrams
+
+            Method:
+            - Prefer extending an existing note to creating a near-duplicate: search before you write. Two notes on one concept are worse than one imperfect note.
+            - Every note you create carries the frontmatter the contract asks for and at least one wikilink in and one out. A note nobody links to is a note that is already lost.
+            - Every note you create carries INLINE markdown links to Wikipedia (or the primary text) at the first mention of each proper noun, text, person, dynasty, species, event or concept, in the prose and in any table — the Sources section at the end is in addition to these, never a substitute. Standing rule from the learner, 2026-09-16; the full version is in `vault-craft` → *Linking — inline first, list second*.
+            - Keep the maps of content current: when a concept note is created, add it to the right map.
+            - When anything is renamed or moved, fix every wikilink that pointed at it.
+            - The review queue is a promise: a concept that was taught and checked earns a review entry with a due date.
+
+            Rules:
+            - Never delete or restructure the learner's own writing. Flag it instead, with the exact change you recommend and why.
+            - Never invent content to fill a note. You record and organise what the session produced; if something is missing, report it as missing.
+            - Do not touch anything outside the learning folders of the vault.
+            - Your final message must state exactly which files you created, extended or re-linked, what you deliberately left alone, and anything you need the teacher to decide.
+          toolFilter:
+            allow:
+              - read
+              - write
+              - edit
+              - glob
+              - grep
+              - skill
+
+      # Product providers are host-plane singletons and are NOT installed by
+      # default. A different model on the other side of an argument is
+      # useful to a teacher: install the matching Bundle in this Profile, restart
+      # the Host, and remove `disabled` from the row to expose that tool.
+      - id: tool-subagent-codex
+        name: '@deepseek-ai/dsh-tool-subagent'
+        disabled: true
+        config:
+          provider: codex
+          toolName: subagent_codex
+          backgroundMode: one-shot
+          maxDepth: provider-managed
+
+      - id: tool-subagent-claude-code
+        name: '@deepseek-ai/dsh-tool-subagent'
+        disabled: true
+        config:
+          provider: claude-code
+          toolName: subagent_claude_code
+          backgroundMode: one-shot
+          maxDepth: provider-managed
+
+  # ── remaining model-facing rows ─────────────────────────────────────────────
+
+  # The check-question tool. This is the DSH counterpart of the `quiz` extension in
+  # the reference system: options render as selectable choices in the UI and the
+  # exact selection comes back, so a question with a right answer can be graded
+  # precisely instead of inferred from prose. Note the constraint that shapes the
+  # whole design: a subagent may NOT ask the user anything, so the examiner
