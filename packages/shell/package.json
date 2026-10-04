@@ -1,0 +1,15 @@
+{
+  "name": "@mimir/shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Mimir Electron shell: one window holding the vault and the teacher.",
+  "license": "MIT",
+  "type": "module",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "node launch.mjs"
+  },
+  "devDependencies": {
+    "electron": "43.0.0"
+  }
+}

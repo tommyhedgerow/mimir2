@@ -1,0 +1,13 @@
+{
+  "name": "mimir-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mimir as a single application: the vault, the teacher and the drawings in one window.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.34.5",
+  "scripts": {
+    "bridge": "node packages/bridge/bin.mjs",
+    "test": "node --test packages/bridge/test/"
+  }
+}

@@ -1,0 +1,30 @@
+# The Mimir profile's own layer, applied after the bundle patches.
+#
+# Two rows matter here.
+#
+# 1. `dsh-siyuan` gives the teacher hands in the vault. Its address and token
+#    are read from the environment rather than written here, because this
+#    profile ships inside the application: a literal token would be a secret
+#    baked into every copy, and a literal port would break the moment two
+#    copies run. The shell sets both when it starts the runtime.
+#
+#    MIMIR_SIYUAN_URL   where the vault's kernel is listening
+#    MIMIR_SIYUAN_TOKEN the kernel's API token, created on first run
+#
+# 2. `system-prompt` states the teacher's role for this application. The
+#    method itself lives in the skills, which are files beside this one — this
+#    row only says what the agent is, so that a session opened in Mimir knows
+#    it is a tutor rather than a coding agent.
+
+- id: system-prompt
+  config:
+    personaPrefix: >-
+      You are Mimir, a teacher. Your working directory is {{cwd}} — a learning
+      vault. You teach by building understanding in the person you are talking
+      to, not by answering for them. The method is in your skills; read them
+      before you teach.
+
+- id: dsh-siyuan
+  config:
+    baseUrl: !!js process.env.MIMIR_SIYUAN_URL ?? 'http://127.0.0.1:6806'
+    apiToken: !!js process.env.MIMIR_SIYUAN_TOKEN ?? ''

@@ -1,0 +1,279 @@
+/**
+ * The runtime bridge: the one place in Mimir that owns a harness process.
+ *
+ * Two surfaces speak to this, and both mean the same methods:
+ *
+ *   - the in-process handle below (`createBridge`), which the Electron main
+ *     process drives directly;
+ *   - the loopback server (`serve`), which the chat surface drives over HTTP,
+ *     and which streams turn events back over server-sent events.
+ *
+ * The chat surface is deliberately not coupled to the harness wire protocol.
+ * It sees `sessionId`, `turn`, `message`, `status` — the vocabulary of a
+ * tutoring session — so the surface can be rebuilt in the vault's own palette
+ * without the harness's session model leaking into the drawing code.
+ */
+
+/** @typedef {import('./types.mjs').BridgeOptions} BridgeOptions */
+/** @typedef {import('./types.mjs').TurnEvent} TurnEvent */
+/** @typedef {import('./types.mjs').SessionSummary} SessionSummary */
+
+/**
+ * A chat-shaped view of one harness session. Text is assembled from the
+ * session's own message events so the surface never has to know what a
+ * content block is.
+ */
+class ChatSession {
+  /**
+   * @param {string} id
+   * @param {import('./types.mjs').Bridge} bridge
+   */
+  constructor(id, bridge) {
+    this.id = id
+    this.bridge = bridge
+    /** @type {string | null} */
+    this.title = null
+    this.updatedAt = Date.now()
+    /** @type {import('./types.mjs').ChatMessage[]} */
+    this.messages = []
+    /** @type {boolean} */
+    this.busy = false
+  }
+
+  /** @param {TurnEvent} event */
+  record(event) {
+    this.updatedAt = Date.now()
+    if (event.type === 'status') {
+      this.busy = event.status === 'running'
+      return
+    }
+    if (event.type !== 'message') return
+    const { messageId, role, text } = event
+    const existing = this.messages.find((m) => m.id === messageId)
+    if (existing) {
+      // Assistant text arrives in pieces; later events supersede earlier ones.
+      if (text.length >= existing.text.length) existing.text = text
+      return
+    }
+    this.messages.push({ id: messageId, role, text, at: this.updatedAt })
+    if (role === 'user' && this.title === null) {
+      this.title = text.split('\n')[0].slice(0, 80)
+    }
+  }
+
+  /** @returns {import('./types.mjs').SessionSummary} */
+  summary() {
+    return {
+      id: this.id,
+      title: this.title,
+      busy: this.busy,
+      updatedAt: this.updatedAt,
+      messageCount: this.messages.length,
+    }
+  }
+}
+
+export class Bridge {
+  /** @param {BridgeOptions} options */
+  constructor(options) {
+    /** @type {BridgeOptions} */
+    this.options = options
+    /** @type {import('@deepseek-ai/dsh-sdk-client').DeepSeekHarness | null} */
+    this.harness = null
+    /** @type {Map<string, ChatSession>} */
+    this.sessions = new Map()
+    /** @type {Set<(event: TurnEvent & { sessionId: string }) => void>} */
+    this.listeners = new Set()
+    this.started = false
+    this.model = {
+      provider: options.provider ?? 'deepseek-official',
+      model: options.model ?? 'deepseek-v4-flash',
+      reasoningEffort: options.reasoningEffort,
+    }
+  }
+
+  /** @param {(event: TurnEvent & { sessionId: string }) => void} listener */
+  subscribe(listener) {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  /** @param {string} sessionId @param {TurnEvent} event */
+  #emit(sessionId, event) {
+    const session = this.sessions.get(sessionId)
+    session?.record(event)
+    const payload = { ...event, sessionId }
+    for (const listener of this.listeners) {
+      try {
+        listener(payload)
+      } catch {
+        // A broken listener must not take the turn down with it.
+      }
+    }
+  }
+
+  /**
+   * Spawns the runtime on first use and completes the protocol handshake.
+   * Idempotent: later calls return the same runtime.
+   */
+  async start() {
+    if (this.started) return this.summaryOfRuntime()
+    const { DeepSeekHarness } = await import('@deepseek-ai/dsh-sdk-client')
+    this.harness = new DeepSeekHarness({
+      profile: this.options.profile ?? 'mimir',
+      dshHome: this.options.dshHome,
+      cwd: this.options.cwd,
+      provider: this.model.provider,
+      model: this.model.model,
+      ...(this.model.reasoningEffort ? { reasoningEffort: this.model.reasoningEffort } : {}),
+    })
+    // The handshake is lazy in the client, so force it now: a model that
+    // cannot resolve should fail at start-up, where the window can say so,
+    // rather than on the learner's first question.
+    await this.harness.start()
+    this.started = true
+    return this.summaryOfRuntime()
+  }
+
+  summaryOfRuntime() {
+    return {
+      started: this.started,
+      model: this.model.model,
+      provider: this.model.provider,
+      sessions: this.sessions.size,
+    }
+  }
+
+  /**
+   * Opens a session handle. The harness creates the session on first prompt,
+   * so this only allocates Mimir's own view of it.
+   * @param {string} [sessionId]
+   */
+  openSession(sessionId) {
+    const id = sessionId ?? `mimir-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    let session = this.sessions.get(id)
+    if (!session) {
+      session = new ChatSession(id, this)
+      this.sessions.set(id, session)
+    }
+    return session
+  }
+
+  /** @returns {SessionSummary[]} */
+  listSessions() {
+    return [...this.sessions.values()]
+      .map((s) => s.summary())
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+  }
+
+  /** @param {string} sessionId */
+  getSession(sessionId) {
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error(`no such session: ${sessionId}`)
+    return {
+      ...session.summary(),
+      messages: session.messages,
+    }
+  }
+
+  /**
+   * Sends one learner turn. The event stream carries the answer as it is
+   * written; the resolved value carries the committed text.
+   * @param {string} sessionId
+   * @param {string} text
+   */
+  async prompt(sessionId, text) {
+    await this.start()
+    if (!this.harness) throw new Error('runtime unavailable')
+    const session = this.openSession(sessionId)
+    session.record({ type: 'message', messageId: `local-user-${Date.now()}`, role: 'user', text })
+    session.busy = true
+    this.#emit(sessionId, { type: 'status', status: 'running' })
+    try {
+      const result = await this.harness.session(sessionId).run(text, {
+        onNotification: (notification) => this.#forwardNotification(sessionId, notification),
+      })
+      const finalText = result.finalResponse ?? ''
+      if (finalText) {
+        session.record({ type: 'message', messageId: `final-${Date.now()}`, role: 'assistant', text: finalText })
+      }
+      this.#emit(sessionId, { type: 'status', status: 'idle' })
+      return { sessionId, text: finalText, events: result.events.length }
+    } catch (error) {
+      this.#emit(sessionId, { type: 'status', status: 'idle' })
+      session.busy = false
+      throw error
+    }
+  }
+
+  /**
+   * Turns a harness notification into Mimir's own event vocabulary. Only the
+   * events a chat surface can draw are forwarded; the rest are dropped here
+   * rather than in the UI, so the UI has one shape to handle.
+   * @param {string} sessionId
+   * @param {any} notification
+   */
+  #forwardNotification(sessionId, notification) {
+    const method = notification?.method
+    if (method === 'session.event') {
+      const event = notification.params?.event ?? notification.params
+      const text = extractAssistantText(event)
+      if (text !== null) {
+        this.#emit(sessionId, {
+          type: 'message',
+          messageId: event?.messageId ?? `assistant-${Date.now()}`,
+          role: 'assistant',
+          text,
+        })
+      }
+      return
+    }
+    if (method === 'session.status') {
+      const status = notification.params?.status ?? notification.params?.state
+      if (status === 'running' || status === 'idle') this.#emit(sessionId, { type: 'status', status })
+      return
+    }
+    if (method === 'subagent.started') {
+      this.#emit(sessionId, { type: 'subagent', subagentId: notification.params?.childSessionId ?? 'subagent', state: 'started' })
+      return
+    }
+    if (method === 'subagent.finished') {
+      this.#emit(sessionId, { type: 'subagent', subagentId: notification.params?.childSessionId ?? 'subagent', state: 'finished' })
+    }
+  }
+
+  async close() {
+    if (this.harness) {
+      await this.harness.close()
+      this.harness = null
+    }
+    this.started = false
+    this.listeners.clear()
+  }
+}
+
+/**
+ * Pulls assistant prose out of a session event. The harness streams durable
+ * facts, so an assistant message can arrive as a partial and be superseded by
+ * a complete one; the UI keys on `messageId` and takes the longer text.
+ * @param {any} event
+ * @returns {string | null}
+ */
+function extractAssistantText(event) {
+  if (!event) return null
+  const message = event.message ?? event
+  const role = message?.role
+  if (role !== 'assistant') return null
+  const content = message?.content
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return null
+  const parts = content
+    .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text)
+  return parts.length ? parts.join('') : null
+}
+
+/** @param {BridgeOptions} options */
+export function createBridge(options) {
+  return new Bridge(options)
+}
