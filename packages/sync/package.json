@@ -1,0 +1,11 @@
+{
+  "name": "@mimir/sync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reconciles a markdown vault with a SiYuan notebook: the files are the record, SiYuan holds a synced view.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "mimir-sync": "bin.mjs"
+  }
+}
