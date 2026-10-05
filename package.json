@@ -8,7 +8,7 @@
   "packageManager": "pnpm@10.34.5",
   "scripts": {
     "bridge": "node packages/bridge/bin.mjs",
-    "test": "node --test packages/bridge/test/vault-sync.test.mjs packages/bridge/test/resolution.test.mjs packages/bridge/test/board.test.mjs packages/markdown/test/markdown.test.js packages/markdown/test/embedded.test.js packages/shell/test/imports.test.cjs",
+    "test": "node --test packages/bridge/test/vault-sync.test.mjs packages/bridge/test/resolution.test.mjs packages/bridge/test/board.test.mjs packages/markdown/test/markdown.test.js packages/markdown/test/embedded.test.js packages/shell/test/imports.test.cjs packages/shell/test/channels.test.cjs",
     "sync-markdown": "node scripts/sync-markdown.mjs"
   }
 }

@@ -8,7 +8,6 @@
     "@deepseek-ai/dsh-base": "0.1.7-rc.2",
     "@deepseek-ai/dsh-sdk-app": "0.1.7-rc.2",
     "@deepseek-ai/dsh-sdk-client": "0.1.7-rc.2",
-    "dsh-siyuan": "0.2.0",
     "dsh-mimir-skin": "file:../../preset/mimir-skin"
   },
   "dsh": {
@@ -16,7 +15,6 @@
       "bundles": [
         "@deepseek-ai/dsh-base",
         "@deepseek-ai/dsh-sdk-app",
-        "dsh-siyuan",
         "dsh-mimir-skin"
       ],
       "patchReload": "live"

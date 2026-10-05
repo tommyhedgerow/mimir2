@@ -34,6 +34,7 @@ module.exports = {
     'launch.mjs',
     'setup/**',
     'renderer/**',
+    'setup/**',
     'package.json',
     '!**/node_modules/**',
   ],

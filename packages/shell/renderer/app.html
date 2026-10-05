@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:"
+    />
+    <title>Mímir</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <header class="rail">
+      <span class="rail__mark" aria-hidden="true"></span>
+      <button class="rail__where" id="where" title="Show the vault folder"></button>
+      <span class="rail__gap"></span>
+      <span class="rail__model" id="model">connecting…</span>
+    </header>
+
+    <div class="panes">
+      <nav class="vault" id="vault">
+        <p class="vault__empty">Reading the vault…</p>
+      </nav>
+
+      <main class="reader" id="reader">
+        <article class="invocation">
+          <h1>What are we learning?</h1>
+          <p>
+            Say the thing you want to understand. The teacher will ask what you already
+            hold, propose a map, and wait for your go-ahead before teaching.
+          </p>
+        </article>
+      </main>
+
+      <aside class="teacher">
+        <div class="teacher__stream" id="stream">
+          <p class="teacher__invocation">
+            The vault is on the left. Pick a note to read, or ask below.
+          </p>
+        </div>
+        <div class="teacher__composer">
+          <textarea id="input" rows="1" placeholder="Teach me…" spellcheck="false"></textarea>
+          <button id="send" class="send">Ask</button>
+        </div>
+      </aside>
+    </div>
+
+    <script src="markdown.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

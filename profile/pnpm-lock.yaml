@@ -20,9 +20,6 @@ importers:
       dsh-mimir-skin:
         specifier: file:../../preset/mimir-skin
         version: file:../../preset/mimir-skin
-      dsh-siyuan:
-        specifier: 0.2.0
-        version: 0.2.0(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-settings@0.1.7-rc.2(7777cadd44aa1536041a98685cf9c193))(@deepseek-ai/dsh-tools@0.1.7-rc.2(d2e08270f2205e73d65e98cfcd910cae))(@deepseek-ai/schemastery@3.18.4)
 
 packages:
 
@@ -3283,15 +3280,6 @@ packages:
 
   dsh-mimir-skin@file:../../preset/mimir-skin:
     resolution: {directory: ../../preset/mimir-skin, type: directory}
-
-  dsh-siyuan@0.2.0:
-    resolution: {integrity: sha512-ABnffpURXRywcHdi/f4o3dRxgC7P4/f+Pxk11C3Qjuvy2Yc924hqg0QWdjda82V+Zn3Nf6c0JE9+YLSgP7a95A==}
-    engines: {node: '>=18.17.0'}
-    peerDependencies:
-      '@deepseek-ai/cordis': 4.0.1
-      '@deepseek-ai/dsh-settings': ^0.1.0-rc.7
-      '@deepseek-ai/dsh-tools': 0.1.0-rc.6
-      '@deepseek-ai/schemastery': ^3.18.1
 
   ecdsa-sig-formatter@1.0.11:
     resolution: {integrity: sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ==}
@@ -7796,13 +7784,6 @@ snapshots:
   diff@9.0.0: {}
 
   dsh-mimir-skin@file:../../preset/mimir-skin: {}
-
-  dsh-siyuan@0.2.0(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-settings@0.1.7-rc.2(7777cadd44aa1536041a98685cf9c193))(@deepseek-ai/dsh-tools@0.1.7-rc.2(d2e08270f2205e73d65e98cfcd910cae))(@deepseek-ai/schemastery@3.18.4):
-    dependencies:
-      '@deepseek-ai/cordis': 4.0.4(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
-      '@deepseek-ai/dsh-settings': 0.1.7-rc.2(7777cadd44aa1536041a98685cf9c193)
-      '@deepseek-ai/dsh-tools': 0.1.7-rc.2(d2e08270f2205e73d65e98cfcd910cae)
-      '@deepseek-ai/schemastery': 3.18.4
 
   ecdsa-sig-formatter@1.0.11:
     dependencies:

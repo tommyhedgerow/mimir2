@@ -34,7 +34,7 @@ delete process.env.ELECTRON_RUN_AS_NODE
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
 const { spawn } = require('node:child_process')
 const { join } = require('node:path')
-const { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, cpSync, rmSync } = require('node:fs')
+const { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, cpSync, rmSync, readdirSync } = require('node:fs')
 const { createServer } = require('node:net')
 
 const here = __dirname
@@ -104,7 +104,16 @@ function resolvePaths() {
   const appDir = packaged ? join(root, 'app') : root
   return {
     dshHome: process.env.MIMIR_DSH_HOME ?? join(app.getPath('userData'), 'harness-home'),
-    vault: process.env.MIMIR_VAULT ?? join(app.getPath('userData'), 'vault'),
+    // The learner's vault: markdown files they own, in a folder they can open.
+    //
+    // It is NOT SiYuan's data directory. SiYuan keeps its documents as block
+    // JSON inside its own store, which is a fine index and no kind of a vault:
+    // there is nothing in it to read, nothing to carry away, and nothing for a
+    // teacher that writes markdown to write into. The markdown is the record;
+    // SiYuan is told about it.
+    vault: process.env.MIMIR_VAULT ?? join(app.getPath('documents'), 'Mimir'),
+    // The kernel's own store, which the learner never opens.
+    kernelStore: process.env.MIMIR_KERNEL_STORE ?? join(app.getPath('userData'), 'vault'),
     profileSource: join(appDir, 'profile'),
     // The dock is application code, not part of the harness: it ships beside
     // the bridge and is installed into the vault's plugin directory on first
@@ -176,16 +185,57 @@ function prepareFirstRun(paths) {
   const profileTarget = join(paths.dshHome, 'profiles', 'mimir')
   installProfile(paths.profileSource, profileTarget)
 
-  mkdirSync(paths.vault, { recursive: true })
+  seedVault(paths.vault)
+  mkdirSync(paths.kernelStore, { recursive: true })
   // The workspace's copy of the dock, kept current for the same reason. It is
   // superseded by the injected panel, but a stale copy in a workspace is a
   // thing that will confuse somebody later.
-  const pluginDir = join(paths.vault, 'data', 'plugins', 'mimir')
+  const pluginDir = join(paths.kernelStore, 'data', 'plugins', 'mimir')
   if (existsSync(paths.pluginSource)) {
     rmSync(pluginDir, { recursive: true, force: true })
     mkdirSync(pluginDir, { recursive: true })
     cpSync(paths.pluginSource, pluginDir, { recursive: true })
   }
+}
+
+/**
+ * A vault the learner can open, the first time.
+ *
+ * The folders the method writes into, and a first note explaining what the
+ * place is. Nothing here is overwritten: it is created once and then it is
+ * theirs.
+ *
+ * @param {string} vaultPath
+ */
+function seedVault(vaultPath) {
+  const folders = ['Learn/Sessions', 'Learn/Concepts', 'Learn/Maps', 'Learn/Sources', 'Learn/Viz']
+  for (const folder of folders) mkdirSync(join(vaultPath, folder), { recursive: true })
+
+  const readme = join(vaultPath, 'README.md')
+  if (existsSync(readme)) return
+
+  writeFileSync(
+    readme,
+    [
+      '# Mimir',
+      '',
+      'This folder is your vault. Everything the teacher writes lands here as a',
+      'markdown file, and you can read it in any editor you like — it is yours, and',
+      'it will still open in ten years.',
+      '',
+      '```',
+      'Learn/Sessions/    one note per sitting',
+      'Learn/Concepts/    one idea per note, linked into a graph',
+      'Learn/Maps/        subject maps and dependency maps',
+      'Learn/Sources/     what a claim rested on',
+      'Learn/Viz/         drawings',
+      '```',
+      '',
+      'Ask the teacher for something and it will write here as it teaches.',
+      '',
+    ].join('\n'),
+  )
+  note(`vault created at ${vaultPath}`)
 }
 
 /**
@@ -294,10 +344,10 @@ async function startVault(paths) {
   const kernelBin = findKernel()
   if (!kernelBin) throw new Error('no SiYuan kernel found — install SiYuan, or run a packaged Mimir build')
 
-  await initialiseWorkspace(kernelBin, paths.vault)
+  await initialiseWorkspace(kernelBin, paths.kernelStore)
 
   const port = await freePort()
-  const child = spawn(kernelBin, ['-w', paths.vault, 'serve', '--port', String(port), '--mode', 'prod'], {
+  const child = spawn(kernelBin, ['-w', paths.kernelStore, 'serve', '--port', String(port), '--mode', 'prod'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   children.kernel = child
@@ -314,7 +364,7 @@ async function startVault(paths) {
   vault = { url: baseUrl, port }
 
   // The token is read after the kernel is up, because the kernel writes it.
-  const token = readKernelToken(paths.vault)
+  const token = readKernelToken(paths.kernelStore)
   vaultAccess = { baseUrl, token }
   if (!token) note('the kernel has no API token; the teacher will not reach the vault')
   return vault
@@ -370,7 +420,21 @@ function startBridge(paths) {
   })
 }
 
+/**
+ * The window, which is Mimir's own.
+ *
+ * It is not SiYuan's interface and it does not contain one. SiYuan is the kernel
+ * behind the application — it owns the documents, the block index, the search
+ * and the references — and Mimir draws its own surface over it: the vault on the
+ * left, the note being read in the middle, the teacher on the right.
+ *
+ * Loading SiYuan's own frontend was tried and abandoned. It is built for its
+ * desktop shell, it fights any surface placed over it, and it puts the vault's
+ * editor in the middle of a teaching application. The kernel is the part that
+ * matters and it is reachable over HTTP.
+ */
 function createWindow() {
+  const paths = resolvePaths()
   const window = new BrowserWindow({
     width: 1440,
     height: 940,
@@ -380,71 +444,18 @@ function createWindow() {
     titleBarStyle: 'hiddenInset',
     show: false,
     webPreferences: {
-      // SiYuan's desktop frontend is built for an Electron renderer and calls
-      // `require` for its own integration — loading it in a plain page fails
-      // with `ReferenceError: require is not defined` and stops on the logo.
-      //
-      // So the vault window is given what SiYuan's own shell gives it. The
-      // surface loaded here is only ever the kernel on loopback, started by this
-      // process, so the trust boundary is the same one SiYuan ships with. The
-      // chat surface and the setup sheet get neither.
-      contextIsolation: false,
-      nodeIntegration: true,
+      preload: join(paths.renderer, 'preload.cjs'),
+      // The page is the application's own HTML on disk. It is given a narrow,
+      // named bridge to the shell and nothing else — no `require`, no filesystem.
+      contextIsolation: true,
+      nodeIntegration: false,
       sandbox: false,
     },
   })
 
-  // The desktop build, named explicitly. The kernel's redirect at `/` picks a
-  // frontend by user agent and chose the Electron *embedded* one, which is a
-  // different application entry point again.
-  window.loadURL(vault ? `${vault.url}/stage/build/desktop/` : 'about:blank')
+  window.loadFile(join(paths.renderer, 'app.html'))
   window.once('ready-to-show', () => window.show())
-
-  // The teacher, into the vault's own window.
-  window.webContents.on('did-finish-load', () => {
-    injectPanel(window, resolvePaths()).catch((error) => {
-      note(`could not inject the panel: ${error.message}`)
-    })
-  })
-
   return window
-}
-
-/**
- * Puts the Mimir panel into the page.
- *
- * Why injection rather than a SiYuan plugin: a plugin reaches the page through
- * the workspace's petal registry, and this one did not load through it however
- * it was written — installed, enabled, served over HTTP, and still absent from
- * the page. The shell owns the window's web contents, so it can simply put the
- * surface in and keep it there. It needs no cooperation from SiYuan.
- *
- * Both files are read in the main process and evaluated in the page, so the
- * page makes no request it would have to be trusted for.
- */
-async function injectPanel(window, paths) {
-  const read = (name) => readFileSync(join(paths.renderer, name), 'utf8')
-  const style = read('mimir-panel.css')
-  const markdown = read('markdown.js')
-  const panel = read('mimir-panel.js')
-
-  await window.webContents.executeJavaScript(
-    `(() => {
-       const style = document.createElement('style')
-       style.id = 'mimir-style'
-       style.textContent = ${JSON.stringify(style)}
-       document.head.append(style)
-       return true
-     })()`,
-    true,
-  )
-  await window.webContents.executeJavaScript(markdown, true)
-  await window.webContents.executeJavaScript(panel, true)
-  await window.webContents.executeJavaScript(
-    `globalThis.Mimir.build(${JSON.stringify(bridge?.url ?? '')}, globalThis.MimirMarkdown); true`,
-    true,
-  )
-  note('panel injected')
 }
 
 function stop(child) {
@@ -541,6 +552,7 @@ async function launch(paths) {
   enableDock(vaultAccess.baseUrl, vaultAccess.token).catch(() => {})
   await startBridge(paths)
   createWindow()
+  forwardBridgeEvents()
 }
 
 // Anything that escapes — a bad module, a missing file, an unhandled rejection
@@ -615,6 +627,177 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createSetupWindow()
   })
+})
+
+/**
+ * The vault, as a list of notes.
+ *
+ * Read from the filesystem, because the markdown *is* the vault. The kernel
+ * holds an index of what it has been told about, and a note the teacher wrote a
+ * second ago is not in it yet — so the tree, the reader and the backlinks all go
+ * to the files. The kernel is for search, references and the block model, and
+ * for nothing the learner is looking at right now.
+ */
+function walkVault(dir, vaultRoot, found = []) {
+  let entries = []
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return found
+  }
+  for (const entry of entries) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
+      walkVault(full, vaultRoot, found)
+    } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      const relative = full.slice(vaultRoot.length + 1)
+      const title = entry.name.replace(/\.md$/, '')
+      found.push({ path: relative, title, id: relative })
+    }
+  }
+  return found
+}
+
+/**
+ * One call to the runtime bridge, made here.
+ *
+ * The page never speaks to the bridge: this process holds the address and makes
+ * the request, so the surface has no network reach of its own.
+ */
+async function bridgeCall(method, params) {
+  if (!bridge?.url) throw new Error('the runtime is not up yet')
+  const response = await fetch(`${bridge.url}/rpc`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ method, params }),
+    signal: AbortSignal.timeout(300000),
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (payload.error) throw new Error(payload.error)
+  return payload.result
+}
+
+/**
+ * Every event the bridge emits, sent to the window.
+ *
+ * Read with a streaming fetch rather than `EventSource`: that is a browser API
+ * and this is the main process, where it does not exist.
+ *
+ * It reconnects. A dropped stream would otherwise leave a surface that silently
+ * stops updating, and a surface that silently stops updating is the failure that
+ * looks least like one.
+ */
+function forwardBridgeEvents() {
+  if (!bridge?.url) return
+
+  const send = (payload) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send('mimir:event', payload)
+    }
+  }
+
+  const pump = async () => {
+    for (;;) {
+      try {
+        const response = await fetch(`${bridge.url}/events`, {
+          headers: { accept: 'text/event-stream' },
+        })
+        if (!response.ok || !response.body) throw new Error(`stream ${response.status}`)
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          // Frames are separated by a blank line and may arrive in pieces.
+          let cut
+          while ((cut = buffer.indexOf('\n\n')) !== -1) {
+            const frame = buffer.slice(0, cut)
+            buffer = buffer.slice(cut + 2)
+            for (const line of frame.split('\n')) {
+              if (!line.startsWith('data:')) continue
+              try {
+                send(JSON.parse(line.slice(5).trim()))
+              } catch {
+                // A frame that will not parse is not worth stopping the stream.
+              }
+            }
+          }
+        }
+      } catch (error) {
+        note(`event stream dropped (${error.message}); reconnecting`)
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+  }
+
+  pump().catch((error) => note(`event stream gave up: ${error.message}`))
+}
+
+ipcMain.handle('mimir:ask', async (_event, { sessionId, text }) =>
+  bridgeCall('session.prompt', { sessionId, text }),
+)
+
+ipcMain.handle('mimir:conversation', async (_event, sessionId) => {
+  try {
+    await bridgeCall('session.open', { sessionId })
+    return await bridgeCall('session.get', { sessionId })
+  } catch {
+    return { messages: [] }
+  }
+})
+
+ipcMain.handle('mimir:vault-tree', () => {
+  const { vault: vaultPath } = resolvePaths()
+  const documents = walkVault(vaultPath, vaultPath).sort((a, b) => a.path.localeCompare(b.path))
+  return { notebook: vaultPath.split('/').pop(), documents, vaultPath }
+})
+
+/** One note's markdown, by its path inside the vault. */
+ipcMain.handle('mimir:document', async (_event, docPath) => {
+  const { vault: vaultPath } = resolvePaths()
+  const full = join(vaultPath, String(docPath ?? ''))
+  // Stay inside the vault: a path from the page is a path from the page.
+  if (!full.startsWith(vaultPath)) return null
+  try {
+    const content = readFileSync(full, 'utf8')
+    const title = String(docPath).split('/').pop().replace(/\.md$/, '')
+    return { title, content }
+  } catch {
+    return null
+  }
+})
+
+/** Notes whose text refers to this one, by `[[name]]`. */
+ipcMain.handle('mimir:vault-backlinks', (_event, title) => {
+  const { vault: vaultPath } = resolvePaths()
+  const wanted = String(title ?? '').trim()
+  if (!wanted) return []
+  const rows = []
+  for (const doc of walkVault(vaultPath, vaultPath)) {
+    if (doc.title === wanted) continue
+    try {
+      const text = readFileSync(join(vaultPath, doc.path), 'utf8')
+      if (text.includes(`[[${wanted}`)) {
+        rows.push({ path: doc.path, title: doc.title, via: 'mention' })
+      }
+    } catch {
+      // A note that will not read is not a note that refers.
+    }
+  }
+  return rows
+})
+
+/** A note by name, for a wikilink. */
+ipcMain.handle('mimir:vault-find', (_event, name) => {
+  const { vault: vaultPath } = resolvePaths()
+  const wanted = String(name ?? '').trim().toLowerCase()
+  return walkVault(vaultPath, vaultPath)
+    .filter((doc) => doc.title.toLowerCase() === wanted || doc.title.toLowerCase().includes(wanted))
+    .map((doc) => ({ id: doc.path, title: doc.title, path: doc.path }))
 })
 
 ipcMain.handle('mimir:status', () => ({

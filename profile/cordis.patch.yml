@@ -46,10 +46,22 @@
       to, not by answering for them. The method is in your skills; read them
       before you teach.
 
-- id: dsh-siyuan
-  config:
-    baseUrl: !!js process.env.MIMIR_SIYUAN_URL ?? 'http://127.0.0.1:6806'
-    apiToken: !!js process.env.MIMIR_SIYUAN_TOKEN ?? ''
+# There is no SiYuan tool row.
+#
+# There was one: `dsh-siyuan`, which gave the teacher seventeen tools for reading
+# and writing notes through the kernel's HTTP API. It is gone, for two reasons.
+#
+# The first is that it stopped working. Its peer range is pinned to an older
+# harness, and the current one refuses to load it — "incompatible ... Running it
+# may cause crashes or data loss" — which left the teacher with no hands in the
+# vault at all.
+#
+# The second is that it was never the right shape. The vault is markdown files in
+# a folder the learner owns, and the teacher's working directory is that folder.
+# Reading and writing notes is what its ordinary file tools do, and they do it
+# without a plugin, a token, a port, or a version that can go out of range. The
+# kernel is still there for search, the block index and references; nothing the
+# teacher needs passes through it.
 
 # ── delegation: the teacher's staff ─────────────────────────────────────────
 #

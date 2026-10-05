@@ -60,7 +60,15 @@ class ChatSession {
       if (text.length >= existing.text.length) existing.text = text
       return
     }
-    this.messages.push({ id: messageId, role, text, at: this.updatedAt })
+    this.messages.push({
+      id: messageId,
+      role,
+      text,
+      at: this.updatedAt,
+      // Ordering, not decoration: a surface rebuilds a conversation from these
+      // and has to put the learner's line before the answer that followed it.
+      seq: this.messages.length,
+    })
     if (role === 'user' && this.title === null) {
       this.title = text.split('\n')[0].slice(0, 80)
     }
