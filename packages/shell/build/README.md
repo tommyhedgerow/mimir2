@@ -62,6 +62,29 @@ are written down rather than discovered.
 An unsigned build runs on the machine that made it and on no one else's: macOS
 quarantines a downloaded application and refuses it.
 
+### It will not open from Finder, and that is a macOS rule, not a bug
+
+On macOS 26 an **ad-hoc signed** application is refused by LaunchServices. The
+process is spawned and terminated before it can draw anything — no window, no
+error, no crash report, and nothing on stderr to read. Launched from a terminal,
+the same build runs perfectly. That asymmetry is the symptom, and it cost an
+afternoon of looking for a fault in the application that was not there.
+
+Two conclusions follow.
+
+**A build without a Developer ID cannot be double-clicked.** Nothing in the
+build can change that: ad-hoc signing is the absence of an identity, and macOS
+treats it accordingly. `~/Desktop/Mimir.command` is the way in until the
+application is signed — a shell script that launches the binary directly, which
+is the path Finder is refusing. Once a real certificate is in place, sign it,
+drag it to the Dock, and delete that file.
+
+**Check the simplest explanation first.** The same symptom had three plausible
+causes — a bad bundle, a bad signature, a hostile environment variable — and two
+of them were investigated before the right question was asked: does *any*
+unsigned Electron application open from Finder on this machine? It does not.
+Reaching for a plain, minimal case earlier would have saved the whole detour.
+
 ## What the application carries
 
 | | | |

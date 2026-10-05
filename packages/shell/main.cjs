@@ -13,14 +13,60 @@
  * an `import` of `electron` in an `.mjs` main file resolves the npm launcher
  * stub instead and yields no `app`. `require` is the supported path.
  */
+/**
+ * This application is a window, not a script.
+ *
+ * `ELECTRON_RUN_AS_NODE=1` makes an Electron binary behave as plain Node: no
+ * `app`, no window, and an immediate exit with no output at all. It is set in
+ * some terminal environments and by some tools for their children, and an
+ * application that inherits it dies in a way that looks exactly like a broken
+ * build.
+ *
+ * It is deleted here, before Electron reads it, and set again only for the
+ * runtime bridge — which is the one child that genuinely wants Node.
+ *
+ * This is not what stopped the application launching from Finder. That is
+ * macOS refusing to launch an ad-hoc signed application, which no environment
+ * variable can fix; see build/README.md.
+ */
+delete process.env.ELECTRON_RUN_AS_NODE
+
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
 const { spawn } = require('node:child_process')
 const { join } = require('node:path')
-const { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync } = require('node:fs')
+const { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, cpSync } = require('node:fs')
 const { createServer } = require('node:net')
 
 const here = __dirname
 const repoRoot = join(here, '..', '..')
+
+/**
+ * Say what is happening, wherever this is running.
+ *
+ * The application writes its progress to stderr, which is right for a terminal
+ * and useless when macOS launches it from Finder: stderr goes nowhere, so a
+ * launch that dies says nothing at all and there is no way to tell a crash from
+ * a refusal to start. This keeps a log beside the application's own state, and
+ * it is written from the first line so that a start-up that dies is still
+ * readable afterwards.
+ */
+let logPath = null
+try {
+  logPath = join(app.getPath('userData'), 'mimir.log')
+  writeFileSync(logPath, '')
+} catch {
+  logPath = null
+}
+
+const note = (line) => {
+  process.stderr.write(`[mimir] ${line}\n`)
+  if (!logPath) return
+  try {
+    appendFileSync(logPath, `${new Date().toISOString()} ${line}\n`)
+  } catch {
+    // A log that cannot be written must not stop the application.
+  }
+}
 
 /** @type {{ kernel: import('node:child_process').ChildProcess | null, bridge: import('node:child_process').ChildProcess | null }} */
 const children = { kernel: null, bridge: null }
@@ -171,13 +217,13 @@ async function enableDock(vaultUrl, token, packageName = 'mimir') {
     })
     const payload = await response.json().catch(() => null)
     if (!payload || payload.code !== 0) {
-      process.stderr.write(`[mimir] could not enable the dock: ${payload?.msg ?? 'no reply'}\n`)
+      note(`could not enable the dock: ${payload?.msg ?? 'no reply'}`)
       return false
     }
-    process.stderr.write(`[mimir] dock enabled: ${packageName}\n`)
+    note(`dock enabled: ${packageName}`)
     return true
   } catch (error) {
-    process.stderr.write(`[mimir] could not enable the dock: ${error.message}\n`)
+    note(`could not enable the dock: ${error.message}`)
     return false
   }
 }
@@ -224,7 +270,7 @@ async function startVault(paths) {
   // The token is read after the kernel is up, because the kernel writes it.
   const token = readKernelToken(paths.vault)
   vaultAccess = { baseUrl, token }
-  if (!token) process.stderr.write('[mimir] the kernel has no API token; the teacher will not reach the vault\n')
+  if (!token) note('the kernel has no API token; the teacher will not reach the vault')
   return vault
 }
 
@@ -378,7 +424,7 @@ function createSetupWindow() {
 /** Reports a start-up failure where a headless run can see it, then shows it. */
 function reportStartFailure(error) {
   const message = error instanceof Error ? error.stack ?? error.message : String(error)
-  process.stderr.write(`[mimir] failed to start: ${message}\n`)
+  note(`failed to start: ${message}`)
   dialog.showErrorBox('Mimir could not start', error instanceof Error ? error.message : String(error))
   app.quit()
 }
@@ -389,7 +435,7 @@ function reportStartFailure(error) {
  */
 async function launch(paths) {
   await startVault(paths)
-  process.stderr.write(`[mimir] vault up: ${vault?.url}\n`)
+  note(`vault up: ${vault?.url}`)
   // Not awaited: a dock that failed to switch on is worth a line in the log,
   // not a refusal to start the app.
   enableDock(vaultAccess.baseUrl, vaultAccess.token).catch(() => {})
@@ -397,8 +443,19 @@ async function launch(paths) {
   createWindow()
 }
 
+// Anything that escapes — a bad module, a missing file, an unhandled rejection
+// on the watcher — reaches the log before it reaches the void. Without this a
+// start-up failure is a process that was there and is not.
+process.on('uncaughtException', (error) => {
+  note(`uncaught: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
+  process.exit(1)
+})
+process.on('unhandledRejection', (reason) => {
+  note(`unhandled rejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`)
+})
+
 app.whenReady().then(async () => {
-  process.stderr.write('[mimir] starting\n')
+  note('starting')
   const paths = resolvePaths()
   try {
     prepareFirstRun(paths)
@@ -422,7 +479,7 @@ app.whenReady().then(async () => {
 
     try {
       const written = writeCredentials(paths, provider, apiKey)
-      process.stderr.write(`[mimir] model connected; credentials at ${written}\n`)
+      note(`model connected; credentials at ${written}`)
     } catch (error) {
       return { ok: false, error: `Could not save the key: ${error.message}` }
     }
@@ -453,7 +510,7 @@ app.whenReady().then(async () => {
     return
   }
 
-  process.stderr.write('[mimir] no model connected; opening setup\n')
+  note('no model connected; opening setup')
   const setup = createSetupWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createSetupWindow()
