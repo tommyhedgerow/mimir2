@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; media-src 'self'"
+    />
+    <title>Mímir</title>
+    <style>
+      /*
+       * The startup animation.
+       *
+       * It plays while the vault kernel and the runtime bridge are coming up,
+       * which is a second or two of real work with nothing to look at. The
+       * colours are the dark appearance's, because the animation's own ground is
+       * near-black: a white window around it would flash.
+       */
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #06070d;
+        overflow: hidden;
+        -webkit-app-region: drag;
+      }
+
+      .stage {
+        display: grid;
+        place-items: center;
+        height: 100%;
+      }
+
+      video,
+      img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      /* The animation fades rather than cutting, so the handover to the window
+         behind it is not a flash. */
+      body {
+        opacity: 1;
+        transition: opacity 320ms ease;
+      }
+
+      body.leaving {
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <video id="anim" autoplay muted playsinline poster="startup/poster.png">
+        <source src="startup/mimir-startup.mp4" type="video/mp4" />
+      </video>
+    </div>
+    <script src="splash.js"></script>
+  </body>
+</html>

@@ -428,6 +428,59 @@ inputEl.addEventListener('keydown', (event) => {
   }
 })
 
+/* ------------------------------------------------------------------ controls */
+
+/**
+ * Appearance and reading size.
+ *
+ * Both are the reader's, so both are remembered. The appearance attribute wins
+ * over the system preference in the stylesheet, which is what makes an explicit
+ * choice stick on a machine whose system setting disagrees with it.
+ */
+const THEME_KEY = 'mimir.theme'
+const SIZE_KEY = 'mimir.readingSize'
+const SIZES = [15, 16.5, 18.5]
+
+const themeEl = document.getElementById('theme')
+const sizeEl = document.getElementById('size')
+
+function applyTheme(mode) {
+  if (mode) {
+    document.documentElement.dataset.theme = mode
+    localStorage.setItem(THEME_KEY, mode)
+  } else {
+    delete document.documentElement.dataset.theme
+    localStorage.removeItem(THEME_KEY)
+  }
+}
+
+function applySize(index) {
+  const size = SIZES[Math.min(Math.max(index, 0), SIZES.length - 1)]
+  document.documentElement.style.setProperty('--read', `${size}px`)
+  localStorage.setItem(SIZE_KEY, String(size))
+  sizeEl.title = `Reading size: ${size}px`
+}
+
+const storedTheme = localStorage.getItem(THEME_KEY)
+if (storedTheme) applyTheme(storedTheme)
+else applyTheme(null)
+
+applySize(Number(localStorage.getItem(SIZE_KEY) ?? 16.5) || 16.5)
+
+themeEl.addEventListener('click', () => {
+  const dark =
+    document.documentElement.dataset.theme === 'dark' ||
+    (!document.documentElement.dataset.theme &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches)
+  applyTheme(dark ? 'light' : 'dark')
+})
+
+sizeEl.addEventListener('click', () => {
+  const current = Number(localStorage.getItem(SIZE_KEY) ?? 16.5)
+  const at = SIZES.indexOf(current)
+  applySize(((at === -1 ? 1 : at) + 1) % SIZES.length)
+})
+
 /* --------------------------------------------------------------------- start */
 
 async function start() {

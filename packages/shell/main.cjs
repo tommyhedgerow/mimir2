@@ -31,7 +31,7 @@
  */
 delete process.env.ELECTRON_RUN_AS_NODE
 
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme } = require('electron')
 const { spawn } = require('node:child_process')
 const { join } = require('node:path')
 const { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, cpSync, rmSync, readdirSync } = require('node:fs')
@@ -433,6 +433,66 @@ function startBridge(paths) {
  * editor in the middle of a teaching application. The kernel is the part that
  * matters and it is reachable over HTTP.
  */
+/**
+ * The startup animation.
+ *
+ * It covers the second or two in which the vault kernel and the runtime bridge
+ * are being started, which is real work with nothing to look at. It is shown
+ * before either of them exists and taken down when the window is ready, so what
+ * a learner sees is the animation and then the application.
+ *
+ * It is not on a timer: if startup is fast it goes quickly, and if the kernel is
+ * slow it stays. A splash that outlives its reason is worse than none.
+ */
+let splashWindow = null
+
+function createSplash(paths) {
+  splashWindow = new BrowserWindow({
+    width: 520,
+    height: 293, // the animation's own 16:9, so nothing is letterboxed
+    frame: false,
+    resizable: false,
+    movable: false,
+    center: true,
+    show: false,
+    backgroundColor: '#06070d',
+    // It has no controls and needs none: the page is a video element and a
+    // style block, both of them ours.
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  })
+  splashWindow.loadFile(join(paths.renderer, 'splash.html'))
+  splashWindow.once('ready-to-show', () => {
+    splashWindow?.show()
+    note('startup animation up')
+  })
+  return splashWindow
+}
+
+/** Fades the animation out and closes it. */
+async function closeSplash() {
+  const window = splashWindow
+  if (!window || window.isDestroyed()) return
+  splashWindow = null
+  try {
+    // Has it actually been seen? A splash taken away after eighty milliseconds
+    // is a flicker, and the point of it is to cover a wait.
+    const seen = await window.webContents.executeJavaScript(
+      'window.mimirSplashSeen ? window.mimirSplashSeen() : false',
+      true,
+    )
+    if (!seen) await new Promise((resolve) => setTimeout(resolve, 600))
+    await window.webContents.executeJavaScript(
+      'document.body.classList.add("leaving"); true',
+      true,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 340))
+  } catch {
+    // If it will not fade, it still has to go.
+  }
+  if (!window.isDestroyed()) window.close()
+  note('startup animation down')
+}
+
 function createWindow() {
   const paths = resolvePaths()
   const window = new BrowserWindow({
@@ -440,7 +500,9 @@ function createWindow() {
     height: 940,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: '#faf6ea',
+    // The window's own background, before the page paints. It must match the
+    // page, or a launch flashes a colour that is no longer in the palette.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#06070d' : '#ffffff',
     titleBarStyle: 'hiddenInset',
     show: false,
     webPreferences: {
@@ -518,7 +580,9 @@ function createSetupWindow() {
     width: 640,
     height: 640,
     resizable: false,
-    backgroundColor: '#faf6ea',
+    // The window's own background, before the page paints. It must match the
+    // page, or a launch flashes a colour that is no longer in the palette.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#06070d' : '#ffffff',
     titleBarStyle: 'hiddenInset',
     show: false,
     webPreferences: {
@@ -545,14 +609,27 @@ function reportStartFailure(error) {
  * directly, when a key is already configured, or from the setup sheet.
  */
 async function launch(paths) {
+  // The animation first, so the wait has something in it. Everything below is
+  // the work it is covering.
+  createSplash(paths)
+
   await startVault(paths)
   note(`vault up: ${vault?.url}`)
   // Not awaited: a dock that failed to switch on is worth a line in the log,
   // not a refusal to start the app.
   enableDock(vaultAccess.baseUrl, vaultAccess.token).catch(() => {})
   await startBridge(paths)
-  createWindow()
+
+  const window = createWindow()
   forwardBridgeEvents()
+
+  // The animation goes when the window can actually be shown, not when it has
+  // been asked for — otherwise it is taken away and there is nothing behind it.
+  window.once('ready-to-show', () => {
+    closeSplash().catch(() => {})
+  })
+  // And if the window never says so, the animation does not stay forever.
+  setTimeout(() => closeSplash().catch(() => {}), 6000)
 }
 
 // Anything that escapes — a bad module, a missing file, an unhandled rejection
