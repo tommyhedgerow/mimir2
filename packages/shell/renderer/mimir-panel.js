@@ -21,6 +21,9 @@
   const Mimir = {}
   globalThis.Mimir = Mimir
 
+  /** A spine state, as a character rather than only a colour. */
+  const STATE_GLYPH = { held: '●', learning: '◐', fragile: '◌', planned: '○' }
+
   const SESSION_KEY = 'mimir.sessionId'
   const WIDTH_KEY = 'mimir.panelWidth'
 
@@ -41,6 +44,7 @@
     panel.style.width = `${Number(localStorage.getItem(WIDTH_KEY)) || 380}px`
     panel.innerHTML = `
       <div class="mimir__rail">
+        <span class="mimir__mark" aria-hidden="true"></span>
         <span class="mimir__model" data-role="model">connecting…</span>
         <button class="mimir__btn" data-role="new" title="Start a new conversation">new</button>
         <button class="mimir__btn" data-role="hide" title="Hide the panel">×</button>
@@ -60,6 +64,22 @@
     handle.title = 'Show the teacher'
 
     document.body.append(handle, panel)
+    // Make room instead of covering the notes. The panel is fixed, so SiYuan's
+    // layout is told how much space is gone; without this it sits underneath and
+    // the learner loses the right-hand end of every line.
+    const setRoom = (width) => {
+      document.documentElement.style.setProperty('--mimir-room', `${width}px`)
+      let room = document.getElementById('mimir-room')
+      if (!room) {
+        room = document.createElement('style')
+        room.id = 'mimir-room'
+        document.head.append(room)
+      }
+      room.textContent = width
+        ? `.layout__center, .layout__dockr, #status { margin-right: ${width}px; }`
+        : ''
+    }
+    setRoom(Number(localStorage.getItem(WIDTH_KEY)) || 380)
 
     const el = {
       model: panel.querySelector('[data-role="model"]'),
@@ -267,13 +287,19 @@
       article.className = 'mimir-board'
 
       for (const node of board.spine ?? []) {
+        const state = node.state || 'planned'
         const row = document.createElement('div')
-        row.className = `mimir-board__node mimir-board__node--${node.state || 'planned'}`
-        const dot = document.createElement('span')
-        dot.className = 'mimir-board__dot'
+        row.className = `mimir-board__node mimir-board__node--${state}`
+        // The state is the point of a spine: what is held, what is being
+        // learned, what is still to come. The glyph carries it as well as the
+        // colour, so it survives a reader who cannot tell the colours apart.
+        const glyph = document.createElement('span')
+        glyph.className = 'mimir-board__dot'
+        glyph.textContent = STATE_GLYPH[state] || STATE_GLYPH.planned
         const label = document.createElement('span')
+        label.className = 'mimir-board__label'
         label.textContent = node.node || ''
-        row.append(dot, label)
+        row.append(glyph, label)
         article.append(row)
       }
 
@@ -390,6 +416,13 @@
       if (event.type === 'status') {
         busy = event.status === 'running'
         el.send.disabled = busy
+        // The waiting mark goes on the turn being written, so it reads as
+        // somebody working on this page rather than a spinner in a corner.
+        const last = [...turns.values()].at(-1)
+        if (last && last.element.classList.contains('mimir-turn--assistant')) {
+          last.element.dataset.busy = String(busy)
+        }
+        if (!busy) scroll()
         return
       }
       if (event.type === 'subagent') {
@@ -452,10 +485,12 @@
     panel.querySelector('[data-role="hide"]').addEventListener('click', () => {
       panel.classList.add('mimir--hidden')
       handle.classList.add('mimir-handle--shown')
+      setRoom(0)
     })
     handle.addEventListener('click', () => {
       panel.classList.remove('mimir--hidden')
       handle.classList.remove('mimir-handle--shown')
+      setRoom(Number(localStorage.getItem(WIDTH_KEY)) || 380)
       el.input.focus()
     })
 

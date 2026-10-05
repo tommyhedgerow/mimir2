@@ -34,7 +34,7 @@ delete process.env.ELECTRON_RUN_AS_NODE
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
 const { spawn } = require('node:child_process')
 const { join } = require('node:path')
-const { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, cpSync } = require('node:fs')
+const { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, cpSync, rmSync } = require('node:fs')
 const { createServer } = require('node:net')
 
 const here = __dirname
@@ -174,16 +174,58 @@ async function waitFor(url, { attempts = 60, delayMs = 500 } = {}) {
 function prepareFirstRun(paths) {
   mkdirSync(paths.dshHome, { recursive: true })
   const profileTarget = join(paths.dshHome, 'profiles', 'mimir')
-  if (!existsSync(join(profileTarget, 'package.json'))) {
-    cpSync(paths.profileSource, profileTarget, { recursive: true })
-  }
+  installProfile(paths.profileSource, profileTarget)
 
   mkdirSync(paths.vault, { recursive: true })
+  // The workspace's copy of the dock, kept current for the same reason. It is
+  // superseded by the injected panel, but a stale copy in a workspace is a
+  // thing that will confuse somebody later.
   const pluginDir = join(paths.vault, 'data', 'plugins', 'mimir')
-  if (!existsSync(join(pluginDir, 'plugin.json')) && existsSync(paths.pluginSource)) {
+  if (existsSync(paths.pluginSource)) {
+    rmSync(pluginDir, { recursive: true, force: true })
     mkdirSync(pluginDir, { recursive: true })
     cpSync(paths.pluginSource, pluginDir, { recursive: true })
   }
+}
+
+/**
+ * The bundled method, kept current in the harness home.
+ *
+ * It is copied on first run and **re-copied whenever the application's copy
+ * changes**. It used to be copied only when absent, which meant the profile a
+ * learner got was the one that shipped the first time they ever opened the app:
+ * a later version could add the lesson board, a skill or a specialist, and no
+ * existing installation would ever receive it. The application would say the
+ * tool existed, the harness would not have it, and the teacher would explain —
+ * correctly, and to the learner's bafflement — that it was "blocked on the
+ * harness".
+ *
+ * The stamp is the profile's own `package.json`, which changes whenever the
+ * bundles, dependencies or skills do. A learner's own files live in the vault,
+ * never here, so replacing this tree loses nothing.
+ *
+ * @param {string} source
+ * @param {string} target
+ */
+function installProfile(source, target) {
+  let stamp = ''
+  try {
+    stamp = readFileSync(join(source, 'package.json'), 'utf8')
+  } catch {
+    note(`no profile to install at ${source}`)
+    return
+  }
+
+  const stampFile = join(target, '.mimir-profile')
+  const current = existsSync(stampFile) ? readFileSync(stampFile, 'utf8') : null
+  if (current === stamp) return
+
+  const fresh = current === null
+  if (existsSync(target)) rmSync(target, { recursive: true, force: true })
+  mkdirSync(target, { recursive: true })
+  cpSync(source, target, { recursive: true, dereference: true })
+  writeFileSync(stampFile, stamp)
+  note(fresh ? 'profile installed' : 'profile updated to this version')
 }
 
 /**
