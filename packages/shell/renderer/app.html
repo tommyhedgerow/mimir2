@@ -30,36 +30,65 @@
       <div class="split" id="split-vault" role="separator" aria-orientation="vertical" tabindex="0"
            title="Drag to resize, double-click to hide"></div>
 
-      <main class="reader" id="reader">
-        <div class="lesson" id="lesson" hidden>
-          <div class="lesson__head">
-            <span class="lesson__what" id="lesson-what"></span>
-            <button class="lesson__back" id="lesson-back" hidden>← back to the lesson</button>
+      <!--
+        The centre is the lesson: the conversation with the teacher first, and the
+        note it is being written into beside it. The note is a tab rather than the
+        centre because the conversation *is* the lesson — the note is where it is
+        kept.
+      -->
+      <main class="centre" id="centre">
+        <div class="tabs" role="tablist">
+          <button class="tab tab--on" id="tab-conversation" role="tab" aria-selected="true">conversation</button>
+          <button class="tab" id="tab-note" role="tab" aria-selected="false">note</button>
+          <span class="tabs__where" id="tabs-where"></span>
+        </div>
+
+        <section class="panel panel--conversation" id="panel-conversation" role="tabpanel">
+          <div class="teacher__stream" id="stream">
+            <article class="invocation" id="invocation">
+              <h1>What are we learning?</h1>
+              <p>
+                Say the thing you want to understand. The teacher will ask what you already
+                hold, propose a map, and wait for your go-ahead before teaching.
+              </p>
+            </article>
+          </div>
+          <div class="composer">
+            <p class="working" id="working"></p>
+            <div class="composer__row">
+              <textarea id="input" rows="1" placeholder="Teach me…" spellcheck="false"></textarea>
+              <button id="send" class="send">Ask</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel panel--note" id="panel-note" role="tabpanel" hidden>
+          <div class="note-head" id="note-head" hidden>
+            <span class="note-head__what" id="lesson-what"></span>
+            <span class="note-head__where" id="lesson-where"></span>
           </div>
           <ol class="phases" id="phases"></ol>
-        </div>
-        <article class="invocation" id="invocation">
-          <h1>What are we learning?</h1>
-          <p>
-            Say the thing you want to understand. The teacher will ask what you already
-            hold, propose a map, and wait for your go-ahead before teaching.
-          </p>
-        </article>
+          <div class="reader" id="reader"></div>
+        </section>
       </main>
 
       <div class="split" id="split-teacher" role="separator" aria-orientation="vertical" tabindex="0"
            title="Drag to resize, double-click to hide"></div>
 
-      <aside class="teacher">
-        <div class="teacher__stream" id="stream">
-          <p class="teacher__invocation">
-            The vault is on the left. Pick a note to read, or ask below.
-          </p>
-        </div>
-        <p class="working" id="working"></p>
-        <div class="teacher__composer">
-          <textarea id="input" rows="1" placeholder="Teach me…" spellcheck="false"></textarea>
-          <button id="send" class="send">Ask</button>
+      <!--
+        The right pane is the lesson's own material: what is being asked, the map
+        of what the learner holds, and any drawing. It is what the conversation
+        refers to, kept in view of it.
+      -->
+      <aside class="lesson-pane" id="lesson-pane">
+        <div class="lesson-pane__inner">
+          <div class="lesson-pane__empty" id="lesson-empty">
+            <p class="teacher__invocation">
+              The board appears here. The teacher publishes the map and the question as
+              the lesson runs.
+            </p>
+          </div>
+          <div class="lesson-pane__board" id="board" hidden></div>
         </div>
       </aside>
     </div>

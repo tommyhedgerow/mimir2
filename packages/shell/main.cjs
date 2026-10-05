@@ -450,10 +450,8 @@ Ask the teacher for something and it will write here as it teaches.
  * @param {string} target
  */
 function installProfile(source, target) {
-  let stamp = ''
-  try {
-    stamp = readFileSync(join(source, 'package.json'), 'utf8')
-  } catch {
+  const stamp = profileStamp(source)
+  if (!stamp) {
     note(`no profile to install at ${source}`)
     return
   }
@@ -468,6 +466,63 @@ function installProfile(source, target) {
   cpSync(source, target, { recursive: true, dereference: true })
   writeFileSync(stampFile, stamp)
   note(fresh ? 'profile installed' : 'profile updated to this version')
+}
+
+/**
+ * What the profile *is*, for deciding whether this installation has it.
+ *
+ * This was the profile's `package.json`, which was wrong in a way that took two
+ * rounds to see. The package file changes when the bundles, dependencies or
+ * skills are *listed* — and not when a skill's text is edited, which is the
+ * commonest change of all. So a correction to the teaching method reached the
+ * repository, built into the application, and never reached the teacher, who
+ * went on reading the version their installation was first given. The Obsidian
+ * instruction was removed twice before this was found.
+ *
+ * The stamp is therefore the content: the manifest, the patch, and every skill
+ * file. Names and sizes are cheap to read and change whenever anything that
+ * matters does.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+function profileStamp(source) {
+  const parts = []
+  for (const name of ['package.json', 'cordis.patch.yml']) {
+    try {
+      parts.push(`${name}:${readFileSync(join(source, name), 'utf8')}`)
+    } catch {
+      // Not every profile has every file.
+    }
+  }
+
+  const skillsDir = join(source, 'skills')
+  try {
+    for (const entry of readdirSync(skillsDir, { withFileTypes: true }).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
+      if (!entry.isDirectory()) continue
+      for (const file of readdirSync(join(skillsDir, entry.name)).sort()) {
+        const full = join(skillsDir, entry.name, file)
+        try {
+          const stat = statSync(full)
+          if (!stat.isFile()) continue
+          parts.push(`${entry.name}/${file}:${stat.size}:${Math.round(stat.mtimeMs)}`)
+        } catch {
+          // A skill file that will not stat is not worth failing the install.
+        }
+      }
+    }
+  } catch {
+    // A profile with no skills is a profile with no method; still installable.
+  }
+
+  return parts.length ? hashOf(parts.join('\n')) : ''
+}
+
+/** @param {string} text */
+function hashOf(text) {
+  return createHash('sha256').update(text, 'utf8').digest('hex')
 }
 
 /**

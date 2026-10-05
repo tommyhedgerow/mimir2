@@ -586,25 +586,59 @@ body {
 
 .board__option {
   position: relative;
+  display: block;
+  width: 100%;
   margin: 0 0 5px;
-  padding: 6px 10px 6px 28px;
+  padding: 7px 10px 7px 30px;
   border: 1px solid var(--rule);
   border-radius: 4px;
   background: var(--paper-2);
+  color: inherit;
+  font-family: inherit;
   font-size: 0.96em;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.board__option:hover {
+  border-color: var(--mark);
+}
+
+/* Chosen, not merely hovered: the learner's answer stays marked so the
+   conversation can be read back afterwards. */
+.board__option--chosen {
+  border-color: var(--mark);
+  background: var(--mark-soft);
 }
 
 .board__option::before {
   content: '';
   position: absolute;
-  left: 10px;
+  left: 11px;
   top: 50%;
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   margin-top: -4px;
   border: 1.5px solid var(--ink-3);
   border-radius: 50%;
-  opacity: 0.5;
+  opacity: 0.6;
+}
+
+.board__option--chosen::before {
+  border-color: var(--mark);
+  background: var(--mark);
+  opacity: 1;
+}
+
+.board__option--chosen::after {
+  content: '✓';
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  margin-top: -0.7em;
+  color: var(--mark);
+  font-size: 0.9em;
 }
 
 .board__hint {
@@ -1159,4 +1193,243 @@ body.resizing .teacher {
   margin-top: 1.2em;
   padding-top: 0;
   border-top: 0;
+}
+
+/* ============================================================================
+ * The centre, and the lesson beside it.
+ *
+ * The window has three parts now: the vault on the left, the lesson down the
+ * middle as two tabs, and the teacher's own material on the right — the map of
+ * what the learner holds and the question being asked.
+ *
+ * The conversation is the surface the centre opens on, because the conversation
+ * *is* the lesson; the note is where it is kept, so it is the tab beside it.
+ * ==========================================================================*/
+
+.centre {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+  min-height: 0;
+  background: var(--paper);
+}
+
+/* ------------------------------------------------------------------- the tabs */
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.tab {
+  padding: 9px 10px 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--ink);
+}
+
+.tab--on {
+  border-bottom-color: var(--mark);
+  color: var(--ink);
+}
+
+.tabs__where {
+  flex: 1;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel--conversation {
+  display: grid;
+  grid-template-rows: 1fr auto;
+}
+
+/* ----------------------------------------------------------- the conversation */
+
+.stream {
+  overflow-y: auto;
+  padding: 22px 26px 6px;
+}
+
+.stream > * {
+  width: 100%;
+  max-width: 38em;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.stream::-webkit-scrollbar { width: 11px; }
+.stream::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background-clip: content-box;
+  background-color: color-mix(in srgb, var(--ink-3) 24%, transparent);
+}
+
+/* A waiting mark on the pane, not on a turn: while the teacher thinks, the last
+   turn is the learner's own line and has nowhere to carry it. */
+.stream--busy::after {
+  content: '';
+  display: block;
+  width: 100%;
+  max-width: 38em;
+  height: 1.4em;
+  margin: 0 auto;
+  background-image: radial-gradient(circle, var(--mark) 1.5px, transparent 1.6px);
+  background-position: 2px center;
+  background-repeat: no-repeat;
+  animation: mimir-wait 1.1s ease-in-out infinite;
+  opacity: 0.8;
+}
+
+@keyframes mimir-wait {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+/* The question, in the conversation where it was asked. */
+.turn--question .turn__body {
+  padding: 10px 12px;
+  border: 1px solid var(--mark);
+  border-radius: 5px;
+  background: var(--mark-soft);
+}
+
+.turn--question::before {
+  background: var(--mark);
+}
+
+.turn__question {
+  margin: 0 0 6px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.turn__option {
+  margin: 0 0 3px;
+  padding-left: 1em;
+  color: var(--ink-2);
+  font-size: 0.94em;
+}
+
+/* -------------------------------------------------------------- the composer */
+
+.composer {
+  border-top: 1px solid var(--rule);
+  background: var(--paper-2);
+}
+
+.composer__row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  padding: 12px 20px 16px;
+}
+
+.composer textarea {
+  flex: 1;
+  min-height: 40px;
+  max-height: 180px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 0.98em;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  overflow: hidden;
+}
+
+.composer textarea:focus {
+  border-color: var(--mark);
+  box-shadow: 0 0 0 3px var(--mark-soft);
+}
+
+/* --------------------------------------------------------------- the note tab */
+
+.panel--note {
+  overflow-y: auto;
+  padding: 26px 40px 80px;
+}
+
+.panel--note > * {
+  width: 100%;
+  max-width: 34em;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.note-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.note-head__what {
+  flex: 1;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-head__where {
+  color: var(--ink-3);
+}
+
+/* ------------------------------------------------------- the teacher's pane */
+
+.lesson-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--rule);
+  background: var(--paper-2);
+}
+
+.lesson-pane__inner {
+  padding: 24px 22px 40px;
+}
+
+.lesson-pane__empty {
+  margin: 0;
+}
+
+.lesson-pane .board {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }

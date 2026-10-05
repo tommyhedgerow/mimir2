@@ -285,3 +285,66 @@ test('every function the page calls is one the page defines', () => {
 
   assert.deepEqual(missing, [], `called but never defined: ${missing.join(', ')}`)
 })
+
+test('nothing at the top level runs before it is defined', () => {
+  // `showTab` was called at line 391 and defined at line 1174. A function
+  // *declaration* is hoisted, so that is fine — but `const` is not, and the call
+  // was in the temporal dead zone. The page would have thrown on load, before a
+  // single tab was drawn.
+  //
+  // This checks only top-level statements, because those are the ones that run
+  // during the module's first pass. A call inside a function body is fine
+  // whenever the function is invoked after the declaration has been evaluated.
+  const source = readFileSync(join(__dirname, '..', 'renderer', 'app.js'), 'utf8')
+  const code = source
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+  const lines = code.split('\n')
+
+  // Top-level means column zero and not a continuation of a block.
+  const declaredAt = new Map()
+  lines.forEach((line, index) => {
+    const fn = /^function\s+([A-Za-z_$][\w$]*)/.exec(line)
+    if (fn) declaredAt.set(fn[1], { index, hoisted: true })
+    const variable = /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(line)
+    if (variable && !declaredAt.has(variable[1])) {
+      declaredAt.set(variable[1], { index, hoisted: false })
+    }
+  })
+
+  const problems = []
+  lines.forEach((line, index) => {
+    if (/^\s/.test(line) || !line.trim()) return // not top level
+    if (/^(?:function|const|let|var|class|import|export|\/\/)/.test(line)) return
+    for (const [, name] of line.matchAll(/(?<![\w.$])([a-zA-Z_$][\w$]*)\s*\(/g)) {
+      const declared = declaredAt.get(name)
+      // Only the names this file declares matter; anything else is a global.
+      if (!declared || declared.hoisted) continue
+      if (declared.index > index) {
+        problems.push(`${name} called at line ${index + 1}, declared at line ${declared.index + 1}`)
+      }
+    }
+  })
+
+  assert.deepEqual(problems, [], `runs before its declaration: ${problems.join('; ')}`)
+})
+
+test('the profile stamp covers skill content, not only the manifest', () => {
+  // The stamp was the profile's `package.json`, so a correction to a *skill*
+  // never moved it — the fix reached the repository, built into the application,
+  // and never reached the teacher, who went on reading the text their
+  // installation was first given. The Obsidian instruction was removed twice
+  // before this was found.
+  const main = readFileSync(join(__dirname, '..', 'main.cjs'), 'utf8')
+
+  assert.match(main, /function profileStamp\(/, 'there is no profile stamp')
+  assert.match(main, /readFileSync\(join\(source, \w+\), [^)]+\)/, 'the stamp does not read the profile files')
+  assert.match(main, /skills/, 'the stamp does not consider the skills')
+  assert.match(main, /statSync\(full\)/, 'the stamp does not measure the skill files')
+
+  // And it must actually be used in place of the manifest.
+  assert.ok(
+    !/stamp = readFileSync\(join\(source, 'package\.json'\)/.test(main),
+    'the stamp is still only the manifest',
+  )
+})

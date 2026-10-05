@@ -366,10 +366,11 @@ function watchLesson() {
     if (running) return
     running = true
     try {
-      // Two questions, asked separately: has the lesson note moved on, and has
-      // the set of notes changed? Only the second rebuilds the tree, and it is
-      // rare — adding, removing or renaming a note.
-      await showLesson()
+      // The conversation and the board, which are cheap.
+      await refresh()
+      // And the tree, only when notes have been added, removed or renamed.
+      // Rebuilding it on every tick would move what is under the pointer while
+      // somebody is using it.
       const token = await api.vaultToken()
       if (token !== treeToken) await loadVault()
     } catch {
@@ -377,12 +378,9 @@ function watchLesson() {
     } finally {
       running = false
     }
-  }, 2500)
+  }, 2200)
 }
 
-document.getElementById('lesson-back')?.addEventListener('click', () => {
-  showLesson(true)
-})
 
 /**
  * The lesson, and the difference between it and a note being looked at.
@@ -401,6 +399,16 @@ document.getElementById('lesson-back')?.addEventListener('click', () => {
  * a session note is. Nothing has to be registered, and a lesson survives a
  * restart for the same reason it exists at all: it was written down.
  */
+/**
+ * Whether a turn is in flight.
+ *
+ * This was declared alongside the turn registry, and went with it when the
+ * registry was removed — leaving `busy` referenced in three places and declared
+ * in none. The page threw on load and stopped before attaching the composer's
+ * click listener, so the button did nothing at all and said nothing about why.
+ */
+let busy = false
+
 let lessonPath = null
 let lessonStamp = ''
 let browsing = false
@@ -564,10 +572,12 @@ function phasesIn(markdown) {
  * it shows what has been done and what is being done, in the lesson's own order.
  */
 function showLessonBar(title, where, markdown) {
-  const bar = document.getElementById('lesson')
-  if (!bar) return
-  bar.hidden = false
-  document.getElementById('lesson-what').textContent = title
+  const head = document.getElementById('note-head')
+  if (head) head.hidden = false
+  const what = document.getElementById('lesson-what')
+  if (what) what.textContent = title
+  const whereEl = document.getElementById('lesson-where')
+  if (whereEl) whereEl.textContent = where ?? ''
 
   const list = document.getElementById('phases')
   if (!list) return
@@ -625,7 +635,6 @@ async function showLesson(force = false) {
   draw(article, note.content)
   readerEl.append(article)
   showLessonBar(current, 'the lesson', note.content)
-  document.getElementById('lesson-back').hidden = true
   markOpenInTree(lessonPath)
 }
 
@@ -688,101 +697,48 @@ async function openDocument(docPath, title) {
     document.getElementById('invocation').hidden = true
     // Reading something else: no phases, because they belong to the lesson.
     showLessonBar(title || current, 'reading', null)
-    document.getElementById('lesson-back').hidden = false
   }
 }
 
 /* -------------------------------------------------------------------- teacher */
 
-const turns = new Map()
-const order = []
-let busy = false
-/** The assistant turn being waited for, while a wait is in progress. */
-let pending = null
-
-function turnFor(id, role, at) {
-  const existing = turns.get(id)
-  if (existing) return existing
-
-  const article = document.createElement('article')
-  article.className = `turn turn--${role}`
-  const body = document.createElement('div')
-  body.className = 'turn__body'
-  article.append(body)
-
-  const stamp = typeof at === 'number' ? at : Date.now()
-  const turn = { element: article, body, role, at: stamp }
-  turns.set(id, turn)
-
-  const later = order.find((t) => t.at > stamp)
-  if (later) streamEl.insertBefore(article, later.element)
-  else streamEl.append(article)
-  order.push(turn)
-  order.sort((a, b) => a.at - b.at)
-  return turn
-}
-
-/**
- * One message from the session, drawn once.
- *
- * The event stream and the re-read after a turn are two views of the same
- * conversation, and they do not agree on ids: the stream names a message
- * `assistant-<ms>` and the stored session names it something else. Matching on
- * id first therefore found nothing and drew the answer a second time — which is
- * what was reported, twice, the second copy cut short because the re-read ran
- * while the turn was still being written.
- *
- * So identity is established by what the message *is*: one turn per role and
- * text. An id is a hint, not the key. The re-read is still worth doing — it is
- * what stops a dropped event losing an answer — but it must be idempotent.
- *
- * @param {string} id
- * @param {'user'|'assistant'} role
- * @param {string} text
- * @param {number|undefined} at
- */
-function drawOnce(id, role, text, at) {
-  const byId = turns.get(id)
-  if (byId) {
-    if (byId.body.textContent.trim() === text.trim()) return byId
-    draw(byId.body, text)
-    return byId
-  }
-
-  // Two turns with no text are not the same message, they are two turns that
-  // have not been written yet. Matching on empty text would collapse the turn
-  // being waited for into whatever else happened to be empty.
-  if (text.trim()) {
-    const same = [...turns.values()].find(
-      (turn) => turn.role === role && turn.body.textContent.trim() === text.trim(),
-    )
-    if (same) return same
-  }
-
-  const turn = turnFor(id, role, at)
-  draw(turn.body, text)
-  return turn
-}
-
-/**
- * What the teacher is doing.
- *
- * A wait with nothing in it reads as a stall, and the wait here is genuinely
- * long: a single turn can take ten seconds and a lesson that delegates to a
- * specialist much longer. The label is what the runtime said it was doing, when
- * it said anything nameable; otherwise it stays on the plain word for waiting.
- */
+/** What the teacher is doing, above the composer. */
 const workingEl = document.getElementById('working')
 
+/**
+ * A wait with nothing in it reads as a stall, and the wait here is genuinely
+ * long: a turn can take ten seconds and a lesson that delegates to a specialist
+ * much longer. The label is what the runtime said it was doing, when it said
+ * anything nameable; otherwise it stays on the plain word for waiting.
+ */
 function setWorking(label) {
   if (!workingEl) return
   workingEl.textContent = label ?? ''
   workingEl.classList.toggle('working--on', Boolean(label))
 }
 
+/** The board, in the right pane. */
+const boardEl = document.getElementById('board')
+const lessonEmptyEl = document.getElementById('lesson-empty')
+const BOARD_STATE = { held: '●', learning: '◐', fragile: '◌', planned: '○' }
+
+/**
+ * The lesson's own material, in the right pane.
+ *
+ * The spine is the map of what the learner holds, so it stays in view while the
+ * conversation goes on. The question and its options are the one interactive
+ * thing here: an option is something to choose, and choosing it answers the
+ * teacher — the learner should not have to retype an answer they can pick.
+ */
 function drawBoard(board) {
-  const article = document.createElement('article')
-  article.className = 'board'
+  if (!boardEl) return
+  boardEl.textContent = ''
+
+  const hasSomething =
+    (board?.spine ?? []).length || board?.question || (board?.drawings ?? []).length
+  if (lessonEmptyEl) lessonEmptyEl.hidden = Boolean(hasSomething)
+  boardEl.hidden = !hasSomething
+  if (!hasSomething) return
 
   for (const node of board.spine ?? []) {
     const state = node.state || 'planned'
@@ -790,12 +746,12 @@ function drawBoard(board) {
     row.className = `board__node board__node--${state}`
     const glyph = document.createElement('span')
     glyph.className = 'board__dot'
-    glyph.textContent = { held: '●', learning: '◐', fragile: '◌', planned: '○' }[state] ?? '○'
+    glyph.textContent = BOARD_STATE[state] ?? BOARD_STATE.planned
     const label = document.createElement('span')
     label.className = 'board__label'
     label.textContent = node.node || ''
     row.append(glyph, label)
-    article.append(row)
+    boardEl.append(row)
   }
 
   for (const drawing of board.drawings ?? []) {
@@ -803,77 +759,67 @@ function drawBoard(board) {
       const note = document.createElement('p')
       note.className = 'board__missing'
       note.textContent = `${drawing.name || 'a drawing'} — not shown`
-      article.append(note)
+      boardEl.append(note)
       continue
     }
     const figure = document.createElement('figure')
     figure.className = 'board__drawing'
     figure.innerHTML = drawing.svg
-    article.append(figure)
+    boardEl.append(figure)
   }
 
   if (board.question) {
     const q = document.createElement('p')
     q.className = 'board__question'
     q.textContent = board.question
-    article.append(q)
+    boardEl.append(q)
+
     for (const option of board.options ?? []) {
-      const o = document.createElement('p')
+      const o = document.createElement('button')
+      o.type = 'button'
       o.className = 'board__option'
       o.textContent = option
-      article.append(o)
+      o.addEventListener('click', () => {
+        if (busy) return
+        for (const other of boardEl.querySelectorAll('.board__option')) {
+          other.classList.toggle('board__option--chosen', other === o)
+        }
+        answerWith(option)
+      })
+      boardEl.append(o)
     }
   }
+
   if (board.hint) {
     const h = document.createElement('p')
     h.className = 'board__hint'
     h.textContent = board.hint
-    article.append(h)
+    boardEl.append(h)
   }
-
-  streamEl.append(article)
-  streamEl.scrollTop = streamEl.scrollHeight
 }
 
 api.onEvent((event) => {
   if (event.sessionId !== sessionId) return
-  if (event.type === 'message') {
-    drawOnce(event.messageId, event.role, event.text, event.at)
-    streamEl.scrollTop = streamEl.scrollHeight
-    return
-  }
-  if (event.type === 'board') {
-    drawBoard(event.board)
+  if (event.type === 'message' || event.type === 'board') {
+    // The conversation is redrawn from the session rather than accumulated from
+    // these, so an event only has to say that something changed. That is what
+    // makes a redraw after a dropped event, or after switching tabs, the same
+    // operation as a redraw during a turn.
+    refresh().catch(() => {})
     return
   }
   if (event.type === 'status') {
     busy = event.status === 'running'
     sendEl.disabled = busy
 
-    if (busy) {
-      // The waiting mark needs a turn to sit on, and there is not one yet: the
-      // last turn is the learner's own line. Marking only an *existing* assistant
-      // turn meant the condition never matched and the indicator had nowhere to
-      // appear — ten seconds of a still screen, reported exactly as that.
-      //
-      // So the turn being waited for is created when the wait starts. The answer
-      // is then drawn into it, which is why it appears where the waiting was
-      // rather than below it.
-      // `running` can arrive more than once for one turn, and each arrival used
-      // to make another empty turn — visible as two blank answers stacked above
-      // the real one.
-      if (!pending) pending = turnFor(`pending-${Date.now()}`, 'assistant', Date.now())
-      pending.element.dataset.busy = 'true'
-    } else {
-      if (pending) pending.element.dataset.busy = 'false'
-      pending = null
-      setWorking(null)
-      // Scroll to the answer that just arrived. This called a `scroll()` that
-      // existed in the pane this code was extracted from and was never carried
-      // over, so it threw on the last event of every turn — after the answer had
-      // been drawn, which is why the answer appeared and the error went unseen.
-      streamEl.scrollTop = streamEl.scrollHeight
-    }
+    // A waiting mark on the pane rather than on a turn. Marking a turn needed one
+    // to exist, and while the teacher is thinking the last turn is the learner's
+    // own line — so the indicator never appeared at all and ten seconds passed
+    // with a still screen. The conversation is redrawn from the session now, so a
+    // mark on a turn would be wiped by the next redraw in any case.
+    streamEl.classList.toggle('stream--busy', busy)
+    setWorking(busy ? 'thinking…' : null)
+    if (!busy) streamEl.scrollTop = streamEl.scrollHeight
     return
   }
 
@@ -886,32 +832,49 @@ api.onEvent((event) => {
 async function ask() {
   const text = inputEl.value.trim()
   if (!text || busy) return
-  drawOnce(`local-${Date.now()}`, 'user', text, Date.now())
   inputEl.value = ''
   autosize()
+  await send(text)
+}
+
+/** Answering a question on the board, which is the same act as typing one. */
+async function answerWith(text) {
+  if (!text || busy) return
+  await send(text)
+}
+
+/**
+ * One turn, from the learner.
+ *
+ * The turn is not drawn here. It is recorded by the bridge and the pane is
+ * redrawn from the session, so a turn typed into the composer and a turn chosen
+ * from the board arrive in the conversation the same way — and there is one
+ * place that decides what the conversation looks like, rather than two that have
+ * to agree with each other.
+ */
+async function send(text) {
+  if (!text || busy) return
   busy = true
   sendEl.disabled = true
-  streamEl.scrollTop = streamEl.scrollHeight
   try {
     // The bridge may settle the turn on a different id than the one asked for,
     // when the harness refuses a name. Following it keeps the conversation one
     // conversation.
     const outcome = await api.ask(sessionId, text)
     if (outcome?.sessionId && outcome.sessionId !== sessionId) sessionId = outcome.sessionId
-    // The answer comes back over the event stream; this reads it again so a
-    // dropped event delays an answer rather than losing it. It has to be
-    // idempotent, or the answer is drawn twice.
-    const history = await api.conversation(sessionId)
-    for (const message of history.messages ?? []) {
-      drawOnce(message.id, message.role, message.text, message.at)
-    }
-    streamEl.scrollTop = streamEl.scrollHeight
     await loadVault()
   } catch (error) {
-    draw(turnFor(`err-${Date.now()}`, 'assistant', Date.now()).body, `**${error.message}**`)
+    const failed = document.createElement('article')
+    failed.className = 'turn turn--assistant'
+    const body = document.createElement('div')
+    body.className = 'turn__body'
+    body.textContent = error.message
+    failed.append(body)
+    streamEl.append(failed)
   } finally {
     busy = false
     sendEl.disabled = false
+    await refresh()
     inputEl.focus()
   }
 }
@@ -999,15 +962,15 @@ sizeEl.addEventListener('click', () => {
  * fresh start. Nothing is lost that was not already written down — which is the
  * point of a vault.
  */
-freshEl.addEventListener('click', () => {
+freshEl.addEventListener('click', async () => {
   nextSession()
-  turns.clear()
-  order.length = 0
-  streamEl.textContent = ''
-  const opening = document.createElement('p')
-  opening.className = 'teacher__invocation'
-  opening.textContent = 'A new conversation. What are we learning?'
-  streamEl.append(opening)
+  // The pane is redrawn from the session, so starting one is only a matter of
+  // naming a new one and asking again — there is no transcript to clear by hand.
+  lastMessageCount = -1
+  if (boardEl) boardEl.textContent = ''
+  if (lessonEmptyEl) lessonEmptyEl.hidden = false
+  await refresh()
+  showTab('conversation')
   inputEl.focus()
 })
 
@@ -1021,11 +984,9 @@ async function start() {
     whereEl.title = `${status.vaultPath} — click to open the folder`
     whereEl.addEventListener('click', () => api.openVault?.())
   }
-  const history = await api.conversation(sessionId)
-  for (const message of history.messages ?? []) {
-    drawOnce(message.id, message.role, message.text, message.at)
-  }
-  streamEl.scrollTop = streamEl.scrollHeight
+  // The conversation first, because that is the surface the centre opens on.
+  await refresh()
+  showTab(localStorage.getItem(TAB_KEY) || 'conversation')
   await loadVault()
   watchLesson()
   autosize()
@@ -1034,7 +995,13 @@ async function start() {
 
 start().catch((error) => {
   modelEl.textContent = 'unavailable'
-  draw(turnFor('startup', 'assistant', Date.now()).body, `**${error.message}**`)
+  const failed = document.createElement('article')
+  failed.className = 'turn turn--assistant'
+  const body = document.createElement('div')
+  body.className = 'turn__body'
+  body.textContent = error.message
+  failed.append(body)
+  streamEl.append(failed)
 })
 
 /* ------------------------------------------------------------------- the panes
@@ -1188,3 +1155,128 @@ function restorePanes() {
 }
 
 restorePanes()
+
+/* ------------------------------------------------------------------- the tabs
+ *
+ * The centre has two surfaces and only one of them is the lesson. The
+ * conversation is the lesson — it is where the teaching happens — and the note
+ * is where it is kept. Which is why the conversation is the surface that opens,
+ * and the note is a tab beside it rather than the thing the centre is.
+ */
+const TAB_KEY = 'mimir.centreTab'
+const panels = {
+  conversation: document.getElementById('panel-conversation'),
+  note: document.getElementById('panel-note'),
+}
+const tabButtons = {
+  conversation: document.getElementById('tab-conversation'),
+  note: document.getElementById('tab-note'),
+}
+
+function showTab(which) {
+  const target = panels[which] ? which : 'conversation'
+  for (const [name, panel] of Object.entries(panels)) {
+    if (panel) panel.hidden = name !== target
+  }
+  for (const [name, button] of Object.entries(tabButtons)) {
+    if (!button) continue
+    button.classList.toggle('tab--on', name === target)
+    button.setAttribute('aria-selected', String(name === target))
+  }
+  localStorage.setItem(TAB_KEY, target)
+  if (target === 'conversation') inputEl?.focus()
+}
+
+tabButtons.conversation?.addEventListener('click', () => showTab('conversation'))
+tabButtons.note?.addEventListener('click', () => showTab('note'))
+showTab(localStorage.getItem(TAB_KEY) || 'conversation')
+
+/**
+ * The conversation, drawn from the session rather than accumulated from events.
+ *
+ * Events are how new turns arrive, but a stream cannot be redrawn, and this pane
+ * is switched away from and back, re-read after a dropped event, and restored
+ * when the window reopens. So the session is the authority and drawing is a
+ * function of it — which makes it idempotent by construction, rather than by a
+ * merge that has to notice what it has already seen.
+ *
+ * A question belongs where it was asked, so the card is placed by the moment it
+ * was published and falls between the turns it falls between.
+ */
+function renderConversation(state) {
+  if (!streamEl) return
+  const messages = state?.messages ?? []
+  const questionAt = state?.questionAt ?? null
+  const invocation = document.getElementById('invocation')
+
+  streamEl.textContent = ''
+  if (!messages.length) {
+    if (invocation) streamEl.append(invocation)
+    return
+  }
+
+  let placed = false
+  for (const message of messages) {
+    if (!placed && questionAt && (message.at ?? 0) > questionAt) {
+      placed = true
+      streamEl.append(questionCard(state.board))
+    }
+    const article = document.createElement('article')
+    article.className = `turn turn--${message.role}`
+    const body = document.createElement('div')
+    body.className = 'turn__body'
+    if (message.text) draw(body, message.text)
+    article.append(body)
+    streamEl.append(article)
+  }
+  if (!placed && questionAt) streamEl.append(questionCard(state.board))
+
+  streamEl.scrollTop = streamEl.scrollHeight
+}
+
+/** The question, in the conversation, where it was asked. */
+function questionCard(board) {
+  const article = document.createElement('article')
+  article.className = 'turn turn--question'
+  const body = document.createElement('div')
+  body.className = 'turn__body'
+  const q = document.createElement('p')
+  q.className = 'turn__question'
+  q.textContent = board?.question || 'The teacher is preparing a question.'
+  body.append(q)
+  for (const option of board?.options ?? []) {
+    const line = document.createElement('p')
+    line.className = 'turn__option'
+    line.textContent = option
+    body.append(line)
+  }
+  if (!board?.question) body.classList.add('turn__body--waiting')
+  article.append(body)
+  return article
+}
+
+/**
+ * Everything on a poll: the conversation, the board, and the note if it is being
+ * read.
+ *
+ * One refresh rather than a timer per surface. The two cheap questions — has the
+ * note moved on, is a question on the board — are asked every time; the note is
+ * only redrawn when it is the tab being looked at.
+ */
+let lastMessageCount = -1
+async function refresh() {
+  let state = null
+  try {
+    state = await api.conversation(sessionId)
+  } catch {
+    return
+  }
+  const count = state?.messages?.length ?? 0
+  if (count !== lastMessageCount) {
+    lastMessageCount = count
+    renderConversation(state)
+  }
+  if (state?.board) drawBoard(state.board)
+
+  if (panels.note && !panels.note.hidden) await showLesson()
+}

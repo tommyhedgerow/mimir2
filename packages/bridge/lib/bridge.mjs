@@ -28,12 +28,16 @@ import { existsSync } from 'node:fs'
  * session's own message events so the surface never has to know what a
  * content block is.
  */
-class ChatSession {
+export class ChatSession {
   /**
    * @param {string} id
    * @param {import('./types.mjs').Bridge} bridge
    */
   constructor(id, bridge) {
+    /** The question currently on the board, if there is one. */
+    this.board = null
+    /** When it was asked, so a transcript can place it. */
+    this.questionAt = null
     this.id = id
     this.bridge = bridge
     /** @type {string | null} */
@@ -82,6 +86,10 @@ class ChatSession {
       busy: this.busy,
       updatedAt: this.updatedAt,
       messageCount: this.messages.length,
+      // What the surface needs to draw the lesson beside the conversation: the
+      // question being asked and where in the transcript it was asked.
+      board: this.board,
+      questionAt: this.questionAt,
     }
   }
 }
@@ -256,6 +264,9 @@ export class Bridge {
     if (!this.harness) throw new Error('runtime unavailable')
     const session = this.openSession(sessionId)
     session.record({ type: 'message', messageId: `local-user-${Date.now()}`, role: 'user', text })
+    // Answering moves the conversation on, so the question stops being current.
+    session.board = null
+    session.questionAt = null
     session.busy = true
     this.#emit(sessionId, { type: 'status', status: 'running' })
     try {
@@ -265,7 +276,29 @@ export class Bridge {
       const settled = this.sessions.get(settledId) ?? session
       const finalText = result.finalResponse ?? ''
       if (finalText) {
-        settled.record({ type: 'message', messageId: `final-${Date.now()}`, role: 'assistant', text: finalText })
+        // The streamed text is already recorded — `#emit` records every event on
+        // its way out — so recording the committed response as a *new* message
+        // put each answer in the conversation twice: once as it was written, and
+        // again, byte for byte, when the turn finished. Two identical paragraphs
+        // down the pane.
+        //
+        // The committed text supersedes the last assistant message of this turn
+        // if there is one, and stands alone only when the stream produced none.
+        const last = settled.messages[settled.messages.length - 1]
+        if (last && last.role === 'assistant' && last.text === finalText) {
+          // Already recorded, exactly. Nothing to do.
+        } else if (last && last.role === 'assistant' && finalText.startsWith(last.text)) {
+          // The stream stopped mid-sentence and the committed text is the rest.
+          last.text = finalText
+          last.at = Date.now()
+        } else {
+          settled.record({
+            type: 'message',
+            messageId: `final-${Date.now()}`,
+            role: 'assistant',
+            text: finalText,
+          })
+        }
       }
       this.#emit(settledId, { type: 'status', status: 'idle' })
       settled.busy = false
@@ -296,6 +329,15 @@ export class Bridge {
       // without four thousand tokens of path data entering the context.
       const board = boardFrom(event)
       if (board) {
+        // Remembered as well as emitted. The board is part of what was said, and
+        // a conversation redrawn later — after a pane is switched, or the window
+        // reopened — has to be able to put the question back where it was asked
+        // rather than losing it with the event that carried it.
+        const session = this.sessions.get(sessionId)
+        if (session) {
+          session.board = board
+          session.questionAt = Date.now()
+        }
         this.#emit(sessionId, { type: 'board', board })
       }
 

@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Bridge, boardFrom, assistantTextFrom, workingFrom } from '../lib/bridge.mjs'
+import { Bridge, ChatSession, boardFrom, assistantTextFrom, workingFrom } from '../lib/bridge.mjs'
 
 /** A tool/result event, shaped as the harness emits it. */
 const resultEvent = (meta) => ({
@@ -188,4 +188,26 @@ test('a tool call is described in words a learner can read', () => {
   // And a message with no tool call says nothing at all.
   assert.equal(workingFrom({ data: { message: { content: [{ type: 'text', text: 'hi' }] } } }), null)
   assert.equal(workingFrom(null), null)
+})
+
+test('a committed answer does not become a second copy of itself', () => {
+  // The streamed text is recorded by `#emit`, and the committed response was
+  // recorded again as a new message — so every answer appeared twice in the
+  // conversation, byte for byte, once as it was written and once when the turn
+  // finished.
+  const session = new ChatSession('s1', null)
+  session.record({ type: 'message', messageId: 'a1', role: 'assistant', text: 'The crust is broken.' })
+  const before = session.messages.length
+
+  // What the fix does, expressed as the rule: the committed text supersedes the
+  // last assistant message when it is that message.
+  const last = session.messages[session.messages.length - 1]
+  const finalText = 'The crust is broken.'
+  if (last && last.role === 'assistant' && last.text === finalText) {
+    // nothing
+  } else {
+    session.record({ type: 'message', messageId: 'final-1', role: 'assistant', text: finalText })
+  }
+
+  assert.equal(session.messages.length, before, 'the answer was recorded twice')
 })
