@@ -13,20 +13,32 @@
     <header class="rail">
       <span class="rail__mark" aria-hidden="true"></span>
       <button class="rail__where" id="where" title="Show the vault folder"></button>
+      <button class="rail__btn rail__btn--wide" id="toggle-vault" title="Show or hide the vault">◧</button>
       <span class="rail__gap"></span>
       <button class="rail__btn" id="fresh" title="Start a new conversation">new</button>
       <button class="rail__btn" id="size" title="Reading size">A</button>
+      <button class="rail__btn rail__btn--wide" id="toggle-teacher" title="Show or hide the teacher">◨</button>
       <button class="rail__btn" id="theme" title="Light or dark">◐</button>
       <span class="rail__model" id="model">connecting…</span>
     </header>
 
-    <div class="panes">
+    <div class="panes" id="panes">
       <nav class="vault" id="vault">
         <p class="vault__empty">Reading the vault…</p>
       </nav>
 
+      <div class="split" id="split-vault" role="separator" aria-orientation="vertical" tabindex="0"
+           title="Drag to resize, double-click to hide"></div>
+
       <main class="reader" id="reader">
-        <article class="invocation">
+        <div class="lesson" id="lesson" hidden>
+          <div class="lesson__head">
+            <span class="lesson__what" id="lesson-what"></span>
+            <button class="lesson__back" id="lesson-back" hidden>← back to the lesson</button>
+          </div>
+          <ol class="phases" id="phases"></ol>
+        </div>
+        <article class="invocation" id="invocation">
           <h1>What are we learning?</h1>
           <p>
             Say the thing you want to understand. The teacher will ask what you already
@@ -35,12 +47,16 @@
         </article>
       </main>
 
+      <div class="split" id="split-teacher" role="separator" aria-orientation="vertical" tabindex="0"
+           title="Drag to resize, double-click to hide"></div>
+
       <aside class="teacher">
         <div class="teacher__stream" id="stream">
           <p class="teacher__invocation">
             The vault is on the left. Pick a note to read, or ask below.
           </p>
         </div>
+        <p class="working" id="working"></p>
         <div class="teacher__composer">
           <textarea id="input" rows="1" placeholder="Teach me…" spellcheck="false"></textarea>
           <button id="send" class="send">Ask</button>

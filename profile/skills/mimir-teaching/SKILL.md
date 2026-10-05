@@ -126,7 +126,7 @@ This is the highest-leverage step. Do not rush it. With his level and his goal i
 **Then present the plan — always, before any teaching.** Two parts:
 
 1. **The approach, in prose.** What we will cover, in what order, and why this way — given where his edge sits and what he is reaching for. A few freeform sentences.
-2. **The dependency map.** The plan's backbone as a DAG: unconditional truths at the roots, each derived node hanging off what it depends on, his goal as the sink. Draw it as a small ```mermaid``` graph — Obsidian renders it natively. This map *is* the teaching order; Phase 3 builds it node by node. Keep it small: few nodes, short labels. A map, not the territory.
+2. **The dependency map.** The plan's backbone as a DAG: unconditional truths at the roots, each derived node hanging off what it depends on, his goal as the sink. Draw it as a small ```mermaid``` graph — the reader draws it. This map *is* the teaching order; Phase 3 builds it node by node. Keep it small: few nodes, short labels. A map, not the territory.
 
 **Then stop and wait for his go-ahead.** The presented plan is his checkpoint: a wrong root or wrong scope is cheap to fix now and expensive mid-lesson. Do not begin Phase 3 until he approves. (For a one-line question, "the plan" is one sentence and the wait is a breath — the shape still holds.)
 
@@ -219,7 +219,7 @@ He raised this directly on 2026-09-28, having read a run of lesson notes: a hedg
 
 The test to apply before sending: **delete the first clause of the sentence.** If nothing of substance is lost, that clause was register and not content, and it should have been deleted.
 
-## Formatting — he reads this in Obsidian
+## Formatting — he reads this in the Mimir window
 
 - **Math** renders as LaTeX: inline `$f(x)$`, display `$$` fenced on its own lines. Use it wherever notation is involved — including in options and explanations.
 - **Diagrams**: ```mermaid``` blocks render natively. Use them for dependency maps, taxonomies, timelines, cycles and systems. For spatial or precise material (maps, cross-sections, cladograms), see the `visualize` skill.

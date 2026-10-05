@@ -209,34 +209,225 @@ function prepareFirstRun(paths) {
  * @param {string} vaultPath
  */
 function seedVault(vaultPath) {
-  const folders = ['Learn/Sessions', 'Learn/Concepts', 'Learn/Maps', 'Learn/Sources', 'Learn/Viz']
+  const folders = [
+    'Learn/Sessions',
+    'Learn/Concepts',
+    'Learn/Maps',
+    'Learn/Sources',
+    'Learn/Viz',
+    'Learn/Reviews',
+    'Learn/Templates',
+  ]
   for (const folder of folders) mkdirSync(join(vaultPath, folder), { recursive: true })
 
-  const readme = join(vaultPath, 'README.md')
-  if (existsSync(readme)) return
+  // The files the method reads and writes, not just the folders it writes into.
+  //
+  // The skills tell the teacher to open the learner profile, the backlog, the
+  // review queue and the index, and to update them as a session runs. None of
+  // them existed: the folders were seeded and the files were not, so the first
+  // session began with the teacher looking for notes that had never been written
+  // and deciding, reasonably, to create them itself. Seeding them is the
+  // difference between a vault and a folder.
+  //
+  // Nothing here is overwritten. Each file is written only if it is absent, so a
+  // learner's own writing is never touched.
+  const files = {
+    'Learn/🌱 Learn Index.md': `---
+type: index
+tags: [learn]
+---
 
-  writeFileSync(
-    readme,
-    [
-      '# Mimir',
-      '',
-      'This folder is your vault. Everything the teacher writes lands here as a',
-      'markdown file, and you can read it in any editor you like — it is yours, and',
-      'it will still open in ten years.',
-      '',
-      '```',
-      'Learn/Sessions/    one note per sitting',
-      'Learn/Concepts/    one idea per note, linked into a graph',
-      'Learn/Maps/        subject maps and dependency maps',
-      'Learn/Sources/     what a claim rested on',
-      'Learn/Viz/         drawings',
-      '```',
-      '',
-      'Ask the teacher for something and it will write here as it teaches.',
-      '',
-    ].join('\n'),
-  )
-  note(`vault created at ${vaultPath}`)
+# Learn Index
+
+What is here, and what is in flight.
+
+## Strands
+
+_None yet. The first session opens one._
+
+## Recent sessions
+
+_None yet._
+
+## Maps
+
+_None yet._
+`,
+
+    'Learn/How We Learn.md': `---
+type: charter
+tags: [learn]
+---
+
+# How we learn
+
+The working agreement between the teacher and the learner in this vault.
+
+**He does the thinking.** The teacher prefers a question to a paragraph. A
+statement of fact is cheap; a fact he reconstructed himself is his.
+
+**Every session starts with a probe.** You cannot teach into the edge of
+someone's understanding without finding where that edge is, and a probe where
+every answer is right was a probe that was too easy.
+
+**The plan is his to approve.** The dependency map — what rests on what, from
+unconditional truths to the goal — is a checkpoint, not a formality.
+
+**One idea per note, one idea each.** Concepts are atomic so they can be
+depended on, linked and retrieved.
+
+**Retrieval, not recognition.** A concept is established when it survives being
+recalled cold after a gap, not when it has been explained well.
+
+**Plainness beats tidiness.** A note that says a session stopped early is worth
+more than one that pretends it did not.
+`,
+
+    'Learn/Learner Profile.md': `---
+type: profile
+tags: [learn]
+---
+
+# Learner Profile
+
+The running state of what the learner holds and where the edges are.
+
+## Confirmed floors
+
+_What has been shown solid, and when._
+
+## Found ceilings
+
+_Where a session ran out. A ceiling found is a plan corrected._
+
+## Misconceptions found
+
+_What was wrong, and whether it was dislodged._
+
+## Preferences
+
+_How he likes to be taught, as it becomes visible._
+`,
+
+    'Learn/Backlog.md': `---
+type: backlog
+tags: [learn]
+---
+
+# Backlog
+
+What he wants to learn, roughly in order.
+
+_Empty. It fills as sessions reveal what is next._
+`,
+
+    'Learn/Glossary.md': `---
+type: glossary
+tags: [learn, glossary]
+---
+
+# Glossary
+
+The niche words a session had to define for the lesson to proceed. One note per
+term in \`Learn/Glossary/\`, each linked here.
+
+| Term | Field | Taught |
+| --- | --- | --- |
+| _none yet_ | | |
+`,
+
+    'Learn/Reading List.md': `---
+type: reading
+tags: [learn]
+---
+
+# Reading List
+
+Books worth reading next, by strand, at most one or two per session.
+
+_Empty._
+`,
+
+    'Learn/Reviews/Review Queue.md': `---
+type: reviews
+tags: [learn]
+---
+
+# Review Queue
+
+The promise that a concept comes back. Newest first.
+
+\`- [ ] [[Concept]] — due YYYY-MM-DD — ask: reconstruct the derivation, not the definition\`
+
+_Empty._
+`,
+
+    'Learn/Templates/Session.md': `---
+date: YYYY-MM-DD
+type: session
+topic:
+subjects: []
+tags: [learn, session]
+status: draft
+probe_checks: 0
+probe_correct: 0
+teach_checks: 0
+teach_correct: 0
+books: []
+terms: []
+published:
+---
+
+# {{topic}}
+
+## Goal
+
+## Probe
+
+| # | Question | Answer | ✓ |
+| --- | --- | --- | --- |
+| 1 | | | |
+
+## The plan
+
+## The nodes
+
+## Checks
+
+| # | Question | Answer | ✓ |
+| --- | --- | --- | --- |
+| 1 | | | |
+
+## Sources
+`,
+
+    'README.md': `# Mimir
+
+This folder is your vault. Everything the teacher writes lands here as a markdown
+file, and you can read it in any editor you like — it is yours, and it will still
+open in ten years.
+
+\`\`\`
+Learn/Sessions/    one note per sitting
+Learn/Concepts/    one idea per note, linked into a graph
+Learn/Maps/        subject maps and dependency maps
+Learn/Sources/     what a claim rested on
+Learn/Viz/         drawings
+Learn/Reviews/     what comes back, and when
+\`\`\`
+
+Ask the teacher for something and it will write here as it teaches.
+`,
+  }
+
+  let written = 0
+  for (const [name, content] of Object.entries(files)) {
+    const target = join(vaultPath, name)
+    if (existsSync(target)) continue
+    writeFileSync(target, content)
+    written += 1
+  }
+  if (written) note(`vault created at ${vaultPath} (${written} files)`)
 }
 
 /**
@@ -476,6 +667,44 @@ function createSplash(paths) {
 }
 
 /**
+ * Puts the diagram engine into the reader.
+ *
+ * Its absence was invisible in the worst way: a ```mermaid``` block still
+ * rendered, as a grey rectangle of its own source, which looks like a note that
+ * was written badly rather than a reader that cannot draw.
+ *
+ * @param {Electron.BrowserWindow} window
+ * @param {ReturnType<typeof resolvePaths>} paths
+ */
+async function injectDiagrams(window, paths) {
+  const engine = join(paths.renderer, 'mermaid.js')
+  if (!existsSync(engine)) {
+    note('the diagram engine is not in this build')
+    return
+  }
+  const source = readFileSync(engine, 'utf8')
+  // The completion value is serialised back to the main process, so evaluating
+  // the bundle on its own fails with "An object could not be cloned" — the
+  // bundle's last expression is the engine itself. `undefined` is cloneable, and
+  // the engine has already been assigned to `globalThis` by then, which is the
+  // only thing that matters.
+  await window.webContents.executeJavaScript(`${source}\n;undefined`, true)
+  const version = await window.webContents.executeJavaScript(
+    `(() => {
+       const engine = globalThis.mermaid
+       if (engine && typeof engine.initialize === 'function') {
+         // Quiet, and it must not try to fetch anything: the page allows no
+         // network of its own.
+         engine.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral' })
+       }
+       return engine ? String(engine.version ?? 'loaded') : 'missing'
+     })()`,
+    true,
+  )
+  note(`diagram engine ready (${version})`)
+}
+
+/**
  * The animation's page, generated with everything it needs beside it.
  *
  * This is fiddly for one reason and it is worth naming: **a `file://` page is
@@ -640,6 +869,20 @@ function createWindow() {
   })
 
   window.loadFile(join(paths.renderer, 'app.html'))
+
+  // The diagram engine, before the reader draws anything.
+  //
+  // It cannot be a `<script src>`: on a file:// page every file is its own opaque
+  // origin, so `script-src 'self'` refuses it, silently, and every mermaid
+  // diagram in every note is then shown as a block of its own source. Evaluating
+  // it here is not subject to the page's policy, and the bundle assigns
+  // `globalThis.mermaid` itself.
+  window.webContents.on('did-finish-load', () => {
+    injectDiagrams(window, paths).catch((error) => {
+      note(`no diagram engine: ${error.message}`)
+    })
+  })
+
   // Not shown here: the animation decides when this appears.
   mainWindow = window
   window.once('closed', () => {
@@ -886,7 +1129,19 @@ function walkVault(dir, vaultRoot, found = []) {
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
       const relative = full.slice(vaultRoot.length + 1)
       const title = entry.name.replace(/\.md$/, '')
-      found.push({ path: relative, title, id: relative })
+      // When it was last written, and how big it is. The surface needs both: the
+      // newest session note is the lesson being taught, and a change in either
+      // means the note on disk has moved on from the one being shown.
+      let mtimeMs = 0
+      let size = 0
+      try {
+        const stat = statSync(full)
+        mtimeMs = stat.mtimeMs
+        size = stat.size
+      } catch {
+        // A file that will not stat is still a file that is there.
+      }
+      found.push({ path: relative, title, id: relative, mtimeMs, size })
     }
   }
   return found
@@ -981,6 +1236,42 @@ ipcMain.handle('mimir:conversation', async (_event, sessionId) => {
   } catch {
     return { messages: [] }
   }
+})
+
+/**
+ * When one note was last written, and how big it is.
+ *
+ * The surface follows the lesson note, which means looking again every few
+ * seconds — and it must be able to do that *without touching anything else*.
+ * The first attempt polled the whole vault and redrew the whole tree on every
+ * change, which rebuilt the centre pane from scratch several times a minute and
+ * threw away the lesson bar with it. The symptom was a `null` element where the
+ * bar had been, in a page that looked correct.
+ *
+ * So the question asked repeatedly is the smallest one that answers it: has this
+ * one file moved on? The tree is fetched when a note is added, removed or
+ * renamed, which is a different question and a much rarer one.
+ *
+ * @param {string} docPath
+ */
+ipcMain.handle('mimir:doc-stamp', (_event, docPath) => {
+  const { vault: vaultPath } = resolvePaths()
+  const full = join(vaultPath, String(docPath ?? ''))
+  if (!full.startsWith(vaultPath)) return null
+  try {
+    const stat = statSync(full)
+    return `${stat.mtimeMs}:${stat.size}`
+  } catch {
+    return null
+  }
+})
+
+/** How many notes there are, and the newest of them, for noticing the tree move. */
+ipcMain.handle('mimir:vault-token', () => {
+  const { vault: vaultPath } = resolvePaths()
+  const documents = walkVault(vaultPath, vaultPath)
+  const newest = documents.reduce((most, doc) => Math.max(most, doc.mtimeMs ?? 0), 0)
+  return `${documents.length}:${Math.round(newest)}`
 })
 
 ipcMain.handle('mimir:vault-tree', () => {

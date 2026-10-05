@@ -45,6 +45,11 @@ else
   cp -R "$SOURCE_APP" "$VENDOR"
 fi
 
+# 2b. The diagram engine, from the vendored SiYuan into the reader.
+#     Without this, every mermaid diagram in every note is shown as its own source.
+echo "  diagram engine…"
+"${NODE_BIN:-node}" "$APP/scripts/sync-mermaid.mjs"
+
 # 3. Record which SiYuan this build carries, so the source offered by CREDITS.md
 #    and the binary shipped here can be checked against each other.
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$VENDOR/Contents/Info.plist" 2>/dev/null || echo "unknown")

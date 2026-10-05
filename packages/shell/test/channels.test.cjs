@@ -123,7 +123,19 @@ test('the stylesheet still lays the window out', () => {
     [/html,\s*body\s*\{[^}]*height:\s*100%/, 'html and body at full height'],
     [/body\s*\{[^}]*display:\s*grid/, 'body as a grid'],
     [/body\s*\{[^}]*grid-template-rows:\s*var\(--rail\)/, 'the rail row'],
-    [/\.panes\s*\{[^}]*grid-template-columns:\s*var\(--vault\)/, 'the three columns'],
+    // The panes are now resizable, so the columns are lengths the reader sets
+    // with a fallback to the declared default, with a splitter column between
+    // them. What has to stay true is that the two outer widths come from those
+    // variables — a hard-coded width would break the drag.
+    [
+      /\.panes\s*\{[^}]*grid-template-columns:[^;]*var\(--vault-w,\s*var\(--vault\)\)/,
+      'the vault column sized from its variable',
+    ],
+    [
+      /\.panes\s*\{[^}]*grid-template-columns:[^;]*var\(--teach-w,\s*var\(--teach\)\)/,
+      'the teacher column sized from its variable',
+    ],
+    [/\.panes\s*\{[^}]*grid-template-columns:[^;]*var\(--split\)/, 'a splitter column'],
   ]
   for (const [pattern, what] of required) {
     assert.match(css, pattern, `${what} is missing from the stylesheet`)
@@ -208,4 +220,68 @@ test('the page declares the directive the shell rewrites', () => {
   // And the hash it inserts must be one the page can actually match.
   assert.match(main, /createHash\('sha256'\)/, 'the shell does not hash the script')
   assert.match(main, /script-src 'sha256-\$\{digest\}'/, 'the shell does not put the hash in the policy')
+})
+
+
+test('folding a pane outranks the width it was dragged to', () => {
+  // A dragged width is an inline style on the element, and an inline style beats
+  // a single class. So `.panes--no-vault { --vault-w: 0px }` lost to the drag and
+  // folding the vault left a seventeen-pixel strip of it behind — the pane was
+  // *nearly* gone, which is the kind of wrong that reads as a rounding error.
+  //
+  // The fold rules therefore have to carry an id to outrank the inline
+  // declaration, and the element has to have that id.
+  const css = readFileSync(join(__dirname, '..', 'renderer', 'app.css'), 'utf8')
+  const html = readFileSync(join(__dirname, '..', 'renderer', 'app.html'), 'utf8')
+
+  for (const which of ['vault', 'teacher']) {
+    const rule = new RegExp(`\\.panes\\.panes--no-${which}#panes\\s*\\{[^}]*--${which === 'vault' ? 'vault' : 'teach'}-w:\\s*0px`)
+    assert.match(css, rule, `the --no-${which} rule does not outrank an inline width`)
+  }
+  assert.match(html, /class="panes"[^>]*id="panes"|id="panes"[^>]*class="panes"/, 'the panes have no id for those rules to match')
+})
+
+test('every function the page calls is one the page defines', () => {
+  // `markOpenInTree` was called and never defined. The whole module threw on the
+  // first line that used it, which meant the lesson bar never appeared at all —
+  // and the symptom was a `null` element in a page that otherwise looked right,
+  // which sent me looking at the stylesheet instead of at the missing function.
+  //
+  // The shell already has a test for this shape (a function the launch path calls
+  // with no definition). This is the same guard for the page.
+  const source = readFileSync(join(__dirname, '..', 'renderer', 'app.js'), 'utf8')
+  // Comments out: prose about a function is not a call to it, and a comment
+  // naming one that no longer exists is not a bug.
+  const page = source
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+    // And regular expressions, which are full of words in alternation —
+    // `|none(?: yet)?|` reads as a call to `none`. A pattern is prose about text,
+    // not code that runs.
+    .replace(/\/(?:\\.|\[[^\]]*\]|[^/\\\n])+\/[gimsuy]*/g, ' ')
+
+  const defined = new Set([
+    // `function name()`, `const name = () =>`, `const name = x =>`, `let name`.
+    ...[...page.matchAll(/function\s+([A-Za-z_$][\w$]*)/g)].map((m) => m[1]),
+    ...[...page.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g)].map((m) => m[1]),
+    ...[...page.matchAll(/([a-zA-Z_$][\w$]*)\s*:\s*(?:async\s*)?function/g)].map((m) => m[1]),
+  ])
+
+  // Called as bare `name(`, which excludes method calls on an object.
+  const called = [...page.matchAll(/(?<![\w.$])([a-z][\w$]*)\s*\(/g)].map((m) => m[1])
+
+  const allowed = new Set([
+    // Keywords that my crude pattern reads as calls.
+    'if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'await', 'async', 'new', 'do', 'else',
+    // Language and platform globals the page legitimately uses.
+    'parse', 'stringify', 'setInterval', 'setTimeout', 'clearInterval', 'clearTimeout', 'fetch',
+    'getComputedStyle', 'requestAnimationFrame', 'matchMedia', 'addEventListener', 'removeEventListener',
+    'isNaN', 'encodeURIComponent', 'decodeURIComponent', 'alert', 'open', 'postMessage',
+  ])
+
+  const missing = [...new Set(called)].filter(
+    (name) => !defined.has(name) && !allowed.has(name) && !/^[A-Z]/.test(name),
+  )
+
+  assert.deepEqual(missing, [], `called but never defined: ${missing.join(', ')}`)
 })

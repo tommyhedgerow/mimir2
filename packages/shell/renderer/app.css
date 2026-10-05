@@ -39,6 +39,7 @@
   --rail: 40px;
   --vault: 232px;
   --teach: 400px;
+  --split: 1px;
 }
 
 /* ------------------------------------------------------------------ the base
@@ -75,10 +76,98 @@ body {
   overflow: hidden;
 }
 
+/*
+ * The three panes, with the two outer ones resizable.
+ *
+ * `--vault-w` and `--teach-w` are lengths the reader sets by dragging, and the
+ * splitter beside each one is part of the grid so nothing has to be positioned.
+ * A collapsed pane is a side of zero and a splitter of the same, so the pane
+ * genuinely leaves the layout rather than being hidden behind the others.
+ */
 .panes {
   display: grid;
-  grid-template-columns: var(--vault) 1fr var(--teach);
+  grid-template-columns:
+    var(--vault-w, var(--vault))
+    var(--split)
+    1fr
+    var(--split)
+    var(--teach-w, var(--teach));
   min-height: 0;
+}
+
+/* The grab handle. Wide enough to hit, thin enough not to read as a column. */
+.split {
+  position: relative;
+  background: var(--rule);
+  cursor: col-resize;
+  transition: background 120ms ease;
+}
+
+.split:hover,
+.split--dragging {
+  background: var(--mark);
+}
+
+/* A larger invisible target than the line, because a 1px target is a nuisance
+   and a 5px line between two panes looks like a mistake. */
+.split::after {
+  content: '';
+  position: absolute;
+  inset: 0 -3px;
+}
+
+/*
+ * Hidden panes: no room, nothing to grab.
+ *
+ * The id in each selector is not decoration. The width a reader drags to is set
+ * as an inline style on the element, and an inline style beats a class — so
+ * `.panes--no-vault { --vault-w: 0px }` lost to the `--vault-w: 330px` from the
+ * drag, and folding the vault left a seventeen-pixel strip of it behind. A
+ * selector carrying the id outranks the inline declaration without `!important`.
+ */
+.panes.panes--no-vault#panes { --vault-w: 0px; }
+.panes--no-vault #split-vault { visibility: hidden; }
+.panes.panes--no-teacher#panes { --teach-w: 0px; }
+.panes--no-teacher #split-teacher { visibility: hidden; }
+
+/*
+ * Folding a pane: zero width, and out of the way.
+ *
+ * TWO faults here, both found by measuring rather than reading.
+ *
+ * 1. A zero-width grid track does not clip its item. The item keeps its own
+ *    padding and border, so folding the vault left seventeen pixels of it — 8px
+ *    padding either side plus a border — as a strip of its own background beside
+ *    the note.
+ * 2. `display: none` is the wrong cure. Removing a grid item from the layout
+ *    drops its track and the explicit tracks around it, and the remaining items
+ *    are then re-placed by auto-placement into columns that no longer mean what
+ *    the template says. The note ended up 112px wide with 1326px of empty grid
+ *    beside it.
+ *
+ * So every item is placed by hand and none of them ever leaves the layout. A
+ * folded pane is a zero-width track whose contents are hidden, which is what a
+ * fold actually is.
+ */
+.panes > .vault { grid-column: 1; }
+.panes > #split-vault { grid-column: 2; }
+.panes > .reader { grid-column: 3; }
+.panes > #split-teacher { grid-column: 4; }
+.panes > .teacher { grid-column: 5; }
+
+.panes > * { grid-row: 1; min-width: 0; }
+
+.panes--no-vault .vault > *,
+.panes--no-teacher .teacher > * {
+  /* Nothing inside a folded pane should be reachable or drawn. */
+  visibility: hidden;
+}
+
+.panes--no-vault .vault,
+.panes--no-teacher .teacher {
+  overflow: hidden;
+  padding: 0;
+  border: 0;
 }
 
 .rail__mark {
@@ -815,4 +904,259 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+
+/* ---------------------------------------------------------------- the diagrams
+ *
+ * Mermaid draws into an SVG with its own colours. It is set on the page's paper
+ * rather than given its own frame, and centred, because a diagram is something
+ * to read rather than a figure to admire.
+ */
+
+.diagram {
+  margin: 1.2em 0;
+  text-align: center;
+  overflow-x: auto;
+}
+
+.diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* A diagram that will not draw keeps its source visible: something somebody
+   wrote is better than nothing, and the failure should be legible. */
+pre[data-diagram] {
+  border-left: 2px solid var(--peach);
+}
+
+/* The line that says the teacher is working. It sits above the composer, where
+   the eye already is because that is where the question was asked. */
+.working {
+  min-height: 1.5em;
+  margin: 0;
+  padding: 0 20px 2px;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.working--on {
+  opacity: 0.9;
+}
+
+/* A mark on the page while the teacher works, so a long wait is visibly a wait. */
+.working--on::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--mark);
+  animation: mimir-pulse 1.2s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+@keyframes mimir-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+
+/* --------------------------------------------------------------- the splitters
+ *
+ * The line is the control: it is what the pointer is aimed at, and the width it
+ * changes is the pane beside it. It is keyboard-reachable for the same reason any
+ * other control is.
+ */
+
+.split:focus-visible {
+  background: var(--mark);
+  outline: none;
+}
+
+/* While a pane is being dragged the pointer must not select text, and the cursor
+   has to stay a resize cursor even when it leaves the thin line. */
+body.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.resizing .reader,
+body.resizing .vault,
+body.resizing .teacher {
+  pointer-events: none;
+}
+
+.rail__btn--wide { width: 26px; }
+
+
+/* ---------------------------------------------------------------- the lesson
+ *
+ * The lesson is not one more note. It has a shape the method gives it — a goal, a
+ * probe, a plan, the teaching, checks, what was read — and the pane says where in
+ * that shape the session currently is.
+ *
+ * The rail is the one piece of chrome in this window that is about the lesson
+ * rather than the notes, so it is quiet: small caps, a rule, and three states.
+ */
+
+.lesson {
+  position: sticky;
+  /* Clears the reader's own top padding so the bar pins flush when the lesson is
+     scrolled. The bar's height varies with how many phases there are, so it is
+     pinned by its top edge rather than by a measured height. */
+  top: -40px;
+  z-index: 2;
+  width: 100%;
+  max-width: 33em;
+  margin: 0 0 1.6em;
+  padding: 8px 0 0;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.lesson__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lesson__what {
+  flex: 1;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lesson__back {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--mark);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--mark);
+  font: inherit;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.lesson__back:hover {
+  background: var(--mark);
+  color: var(--paper);
+}
+
+/* The phases, in order, with the one being worked on marked. */
+.phases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 8px 0 9px;
+  padding: 0;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.phase {
+  position: relative;
+  padding-left: 13px;
+  color: var(--ink-3);
+}
+
+/* The dot: hollow for what is still to come, filled for what is done, and a ring
+   for the one being worked on. The same three states the spine uses. */
+.phase::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.phase--done {
+  color: var(--mark);
+  opacity: 0.75;
+}
+
+.phase--done::before {
+  background: currentColor;
+}
+
+.phase--now {
+  color: var(--mark);
+  font-weight: 600;
+}
+
+.phase--now::before {
+  border-width: 2.5px;
+  animation: mimir-pulse 1.6s ease-in-out infinite;
+}
+
+.phase--todo {
+  opacity: 0.45;
+}
+
+/* Passed without being written: the lesson moved on, and the rail says so
+   rather than claiming the phase was done or pretending it is still to come. */
+.phase--passed {
+  color: var(--ink-3);
+  opacity: 0.7;
+}
+
+.phase--passed::before {
+  border-style: dotted;
+}
+
+/* A lesson reads as a sequence of parts rather than a wall of prose. The
+   headings are the parts, and they are set as markers rather than as titles. */
+.note--lesson h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2em 0 0.6em;
+  padding-top: 0.7em;
+  border-top: 1px solid var(--rule-soft);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.note--lesson h1 {
+  margin-bottom: 0.7em;
+}
+
+/* The goal is the one part that is a statement rather than a record. */
+.note--lesson h2:first-of-type + p {
+  font-size: 1.04em;
+}
+
+
+/* The first section heading follows the note's own title, so its rule is a second
+   line where one will do. */
+.note--lesson h1 + h2 {
+  margin-top: 1.2em;
+  padding-top: 0;
+  border-top: 0;
 }

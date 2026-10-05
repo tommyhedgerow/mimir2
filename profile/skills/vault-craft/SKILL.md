@@ -1,7 +1,7 @@
 ---
 name: vault-craft
 description: The contract for this learning vault — folder layout, frontmatter, where each kind of note belongs, wikilink and map upkeep, the review queue, and how finished notes are published into the Yggdrasil library. Load before writing, moving or indexing anything in the vault.
-whenToUse: At the very start of every session, to create the session note and open it in Obsidian; before creating, editing, moving or deleting any note; when writing a session note; when updating maps, the learner profile, the backlog or the review queue; when publishing to Yggdrasil.
+whenToUse: At the very start of every session, to create the session note; before creating, editing, moving or deleting any note; when writing a session note; when updating maps, the learner profile, the backlog or the review queue; when a note is finished and would be published.
 ---
 
 # The vault
@@ -12,11 +12,12 @@ This vault is the memory of the teaching. The conversation is not. If a session 
 
 Two standing conventions, asked for by him on 2026-09-15. They are not polish: **he reads the vault, not the chat**, and the vault is where diagrams render. A session that follows the method but leaves the note until the end has taught him blind.
 
-1. **Create the session note at the very start, and open it in Obsidian.** At the start — before the probe, not after the teaching. A skeleton with frontmatter is enough to open; the content fills in as the session runs.
+1. **Create the session note at the very start, and tell him it is there.** At the start — before the probe, not after the teaching. A skeleton with frontmatter is enough; the content fills in as the session runs.
    - Create `Learn/Sessions/YYYY-MM-DD Short Topic.md` from `Learn/Templates/Session.md`.
-   - Open it from the shell: `open "obsidian://open?vault=<registered vault name>&file=<url-encoded vault-relative path>"`. Spaces, em-dashes and other non-ASCII characters in the filename must be percent-encoded; build the URI with `python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "Learn/Sessions/…"` rather than encoding by hand.
-   - Get the registered vault name from `~/Library/Application Support/obsidian/obsidian.json` — read it, do not guess it. If the name does not resolve, `obsidian://open?path=<absolute path>` is the fallback.
-   - **Keep apostrophes out of session filenames.** They complicate the URI and every `[[wikilink]]` that points at the note.
+   - **Write the file. Do not try to open an editor.** This vault is read in the Mimir application, which lists every note in its left-hand tree and shows the one he picks in the middle of the same window. There is nothing to launch and no other program involved.
+     - There is no `obsidian://` URL here, and no Obsidian. Attempting one produces a system error about a file that cannot be opened, because Obsidian is not installed and never was part of this.
+     - Say in one line that the note is on disk and where — `Learn/Sessions/…` — and carry on teaching. He will see it appear in the tree as it is written.
+   - **Keep apostrophes out of session filenames.** They complicate every `[[wikilink]]` that points at the note.
 2. **Write the note as the session runs, not at the end.** The probe table, the plan and its mermaid map, and each node's four moves go in live, in the order they happen. He is reading along while the lesson is in progress, so a note reconstructed afterwards has already failed him.
    - **Plainness beats tidiness.** If the plan was never approved, if the session stopped early, or if nothing was taught, the note says so plainly — and the review queue stays empty. An empty queue is a true state; a fabricated entry is not.
    - The end-of-session write-back below still happens in full. The live note is one of its steps, not a substitute for the rest.
@@ -36,9 +37,7 @@ Learn/
   Learner Profile.md     running state: what he holds, where his edges are
   Backlog.md             what he wants to learn, ordered
   Dashboard.md           live views over the frontmatter — what is due, what is fragile
-  Dashboard.base         the view definitions themselves
   Glossary.md            the vocabulary hub — what each niche word means, and its field
-  Glossary.base          the view definitions for the glossary
   Glossary/              one note per niche term (type: term)
   Reading List.md        what to read next, by strand
   Templates/             Session.md, Concept.md, Map.md
@@ -113,7 +112,7 @@ Body: the idea in two or three sentences of his own register; then **Why it has 
 
 ## Linking — inline first, list second
 
-**He asked for this directly, 2026-09-16:** *"these inline wikipedia links are great, please include them in the obsidian notes going forward."* It is a standing rule, not a style preference.
+**He asked for this directly, 2026-09-16:** *"these inline wikipedia links are great, please include them in the notes going forward."* It is a standing rule, not a style preference.
 
 - **Every proper noun, text, dynasty, person, movement, species, event, place or concept gets a real markdown link at its first mention in the body of the note** — `[Confucius](https://en.wikipedia.org/wiki/Confucius)`, not bare text.
 - The **Sources** section stays, as the collected list with a line on what each source is good for. **It is in addition to the inline links, never instead of them.** A note with only a Sources list fails this rule.
@@ -226,7 +225,7 @@ Spacing: first review within a week, then double the interval each time it is re
 
 When a session is `status: done` and its concept notes are `established`, it can be published into his library:
 
-- **From Obsidian: one click.** The active note's publish button/command copies it, and everything it embeds, into the mirror path inside Yggdrasil: `Learn/Sessions/x.md` → `Yggdrasil/Learn/Sessions/x.md`, and likewise for `Concepts/`, `Maps/`, `Viz/`, `Sources/`. It stamps `published:` in the source note so published state is visible here.
+- **There is no publish button in the Mimir application.** Publishing is a step taken in his other tools, not here. Do not reach for a button or a URI that this window does not have; if a note is ready to publish, say so and leave it at that.
 - **From here:** run `Tools/publish-to-yggdrasil.sh <path-relative-to-vault>` (add `--with-links` to take its linked concept notes along).
 
 Before publishing, check that the note stands alone: Yggdrasil cannot resolve a `[[wikilink]]` that points at a note living only in this vault. Either inline what the link carried, or convert it to plain text naming the concept. Wikipedia and other external links are fine and wanted. Do not publish drafts, do not publish notes that still contain a wrong claim you know about, and never publish over his own Yggdrasil notes without asking.

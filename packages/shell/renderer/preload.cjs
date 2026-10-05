@@ -13,8 +13,14 @@ contextBridge.exposeInMainWorld('mimir', {
   /** Where things are, and whether the runtime came up. */
   status: () => ipcRenderer.invoke('mimir:status'),
 
-  /** The vault as a list of documents, read from the kernel. */
+  /** The vault as a list of documents. */
   vaultTree: () => ipcRenderer.invoke('mimir:vault-tree'),
+
+  /** A cheap value that changes when notes are added or removed. */
+  vaultToken: () => ipcRenderer.invoke('mimir:vault-token'),
+
+  /** When one note was last written. What following a lesson actually asks. */
+  docStamp: (docPath) => ipcRenderer.invoke('mimir:doc-stamp', docPath),
 
   /** One document's markdown, by id. */
   document: (docId) => ipcRenderer.invoke('mimir:document', docId),

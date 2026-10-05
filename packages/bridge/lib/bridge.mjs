@@ -299,6 +299,16 @@ export class Bridge {
         this.#emit(sessionId, { type: 'board', board })
       }
 
+      // What the teacher is doing, for a wait that would otherwise be silent.
+      // A turn that reads the vault or delegates to a specialist takes a long
+      // time, and a still screen for that long reads as a stall.
+      //
+      // A tool call arrives as a content block on the assistant message:
+      // `{type: 'tool-call', name: 'glob'}`. The names are the runtime's, so
+      // they are mapped to what they are doing rather than shown raw.
+      const doing = workingFrom(event)
+      if (doing) this.#emit(sessionId, { type: 'working', label: doing })
+
       const text = assistantTextFrom(event)
       if (text !== null) {
         this.#emit(sessionId, {
@@ -341,6 +351,40 @@ export class Bridge {
  * @param {any} event
  * @returns {string | null}
  */
+/**
+ * What a tool call means, in one line a learner can read.
+ *
+ * The names are the runtime's own and are not shown raw: `glob` is not a word
+ * anybody wants to watch for six seconds. Anything unrecognised falls back to a
+ * plain statement that work is happening, which is the important part.
+ *
+ * @param {any} event
+ * @returns {string|null}
+ */
+export function workingFrom(event) {
+  const blocks = event?.data?.message?.content
+  if (!Array.isArray(blocks)) return null
+
+  const call = blocks.find((block) => block?.type === 'tool-call')
+  if (!call) return null
+
+  const name = String(call.name ?? call.toolName ?? '').toLowerCase()
+  const named = {
+    glob: 'looking through the vault',
+    grep: 'searching the vault',
+    read: 'reading a note',
+    write: 'writing a note',
+    edit: 'editing a note',
+    task: 'briefing a specialist',
+    bash: 'working in the vault',
+    webfetch: 'reading a source',
+    websearch: 'checking a source',
+    web_fetch: 'reading a source',
+    web_search: 'checking a source',
+  }
+  return named[name] ?? 'working…'
+}
+
 export function assistantTextFrom(event) {
   if (!event) return null
   // A session event wraps its payload in `data`: an assistant message arrives as

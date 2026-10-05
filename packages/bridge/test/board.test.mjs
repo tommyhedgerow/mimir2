@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Bridge, boardFrom, assistantTextFrom } from '../lib/bridge.mjs'
+import { Bridge, boardFrom, assistantTextFrom, workingFrom } from '../lib/bridge.mjs'
 
 /** A tool/result event, shaped as the harness emits it. */
 const resultEvent = (meta) => ({
@@ -167,4 +167,25 @@ test('any other failure is not swallowed', async () => {
   bridge.harness = harness
   bridge.started = true
   await assert.rejects(() => bridge.prompt('mimir-x-1', 'hello'), /unreachable/)
+})
+
+/* ---------------------------------------------------------- the working line */
+
+test('a tool call is described in words a learner can read', () => {
+  // The names are the runtime's. `glob` is not a word anybody wants to watch for
+  // six seconds, and a still screen for that long reads as a stall.
+    const call = (name) => ({
+    type: 'assistant/message',
+    data: { message: { role: 'assistant', content: [{ type: 'reasoning' }, { type: 'tool-call', name }] } },
+  })
+
+  assert.equal(workingFrom(call('read')), 'reading a note')
+  assert.equal(workingFrom(call('glob')), 'looking through the vault')
+  assert.equal(workingFrom(call('write')), 'writing a note')
+  // An unknown tool still says something, because the point is that something is
+  // happening at all.
+  assert.equal(workingFrom(call('some-future-tool')), 'working…')
+  // And a message with no tool call says nothing at all.
+  assert.equal(workingFrom({ data: { message: { content: [{ type: 'text', text: 'hi' }] } } }), null)
+  assert.equal(workingFrom(null), null)
 })
