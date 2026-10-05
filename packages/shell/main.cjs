@@ -115,6 +115,10 @@ function resolvePaths() {
       ? join(appDir, 'packages', 'bridge', 'bin.mjs')
       : join(root, 'packages', 'bridge', 'bin.mjs'),
     bridgeCwd: appDir,
+    // The panel that goes into the vault window. It is the shell's own code,
+    // not SiYuan's, because a SiYuan plugin reaches the page only through the
+    // workspace's petal registry and this one did not arrive that way.
+    renderer: join(here, 'renderer'),
   }
 }
 
@@ -334,17 +338,71 @@ function createWindow() {
     titleBarStyle: 'hiddenInset',
     show: false,
     webPreferences: {
-      // The vault is SiYuan's own interface, served by its kernel. It gets no
-      // preload and no node integration: it is a web page, and the app's own
-      // privileges stay in this process.
-      contextIsolation: true,
-      nodeIntegration: false,
+      // SiYuan's desktop frontend is built for an Electron renderer and calls
+      // `require` for its own integration — loading it in a plain page fails
+      // with `ReferenceError: require is not defined` and stops on the logo.
+      //
+      // So the vault window is given what SiYuan's own shell gives it. The
+      // surface loaded here is only ever the kernel on loopback, started by this
+      // process, so the trust boundary is the same one SiYuan ships with. The
+      // chat surface and the setup sheet get neither.
+      contextIsolation: false,
+      nodeIntegration: true,
+      sandbox: false,
     },
   })
 
-  window.loadURL(vault?.url ?? 'about:blank')
+  // The desktop build, named explicitly. The kernel's redirect at `/` picks a
+  // frontend by user agent and chose the Electron *embedded* one, which is a
+  // different application entry point again.
+  window.loadURL(vault ? `${vault.url}/stage/build/desktop/` : 'about:blank')
   window.once('ready-to-show', () => window.show())
+
+  // The teacher, into the vault's own window.
+  window.webContents.on('did-finish-load', () => {
+    injectPanel(window, resolvePaths()).catch((error) => {
+      note(`could not inject the panel: ${error.message}`)
+    })
+  })
+
   return window
+}
+
+/**
+ * Puts the Mimir panel into the page.
+ *
+ * Why injection rather than a SiYuan plugin: a plugin reaches the page through
+ * the workspace's petal registry, and this one did not load through it however
+ * it was written — installed, enabled, served over HTTP, and still absent from
+ * the page. The shell owns the window's web contents, so it can simply put the
+ * surface in and keep it there. It needs no cooperation from SiYuan.
+ *
+ * Both files are read in the main process and evaluated in the page, so the
+ * page makes no request it would have to be trusted for.
+ */
+async function injectPanel(window, paths) {
+  const read = (name) => readFileSync(join(paths.renderer, name), 'utf8')
+  const style = read('mimir-panel.css')
+  const markdown = read('markdown.js')
+  const panel = read('mimir-panel.js')
+
+  await window.webContents.executeJavaScript(
+    `(() => {
+       const style = document.createElement('style')
+       style.id = 'mimir-style'
+       style.textContent = ${JSON.stringify(style)}
+       document.head.append(style)
+       return true
+     })()`,
+    true,
+  )
+  await window.webContents.executeJavaScript(markdown, true)
+  await window.webContents.executeJavaScript(panel, true)
+  await window.webContents.executeJavaScript(
+    `globalThis.Mimir.build(${JSON.stringify(bridge?.url ?? '')}, globalThis.MimirMarkdown); true`,
+    true,
+  )
+  note('panel injected')
 }
 
 function stop(child) {

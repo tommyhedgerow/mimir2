@@ -15,7 +15,7 @@
  *   node app/scripts/sync-markdown.mjs          # write the copy
  *   node app/scripts/sync-markdown.mjs --check  # fail if it is stale
  */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -24,6 +24,9 @@ const appRoot = join(here, '..')
 
 const SOURCE = join(appRoot, 'packages', 'markdown', 'markdown.js')
 const TARGET = join(appRoot, 'siyuan-plugin', 'index.js')
+// The injected panel carries the same parser, for the same reason: it is one
+// file in the page and cannot import anything.
+const RENDERER = join(appRoot, 'packages', 'shell', 'renderer', 'markdown.js')
 
 const BEGIN = '/* ==== BEGIN embedded markdown parser (generated — edit app/packages/markdown/markdown.js) ==== */'
 const END = '/* ==== END embedded markdown parser ==== */'
@@ -86,4 +89,35 @@ if (next === target) {
 } else {
   writeFileSync(TARGET, next)
   console.log('sync-markdown: wrote the parser into app/siyuan-plugin/index.js')
+}
+
+/* ------------------------------------------------------------------- renderer */
+
+// The panel's own copy, as a plain script that binds the global it reads.
+const rendererBody = [
+  BEGIN,
+  '// Generated from app/packages/markdown/markdown.js — edit that and run:',
+  '//   node app/scripts/sync-markdown.mjs',
+  parser,
+  'globalThis.MimirMarkdown = { parse, inline }',
+  END,
+  // The completion value is serialised back to the main process by
+  // `executeJavaScript`. It must not be the result of a call that returns a
+  // Promise — that fails with "An object could not be cloned" and the injection
+  // never happens. `true` is cloneable, and it has to be last: a trailing
+  // comment, even one on its own line, becomes the completion value.
+  'true',
+].join('\n')
+
+const rendererCurrent = existsSync(RENDERER) ? readFileSync(RENDERER, 'utf8') : null
+if (process.argv.includes('--check')) {
+  if (rendererCurrent === rendererBody) {
+    console.log("sync-markdown: the panel's parser matches the source")
+  } else {
+    console.error("sync-markdown: the panel's embedded parser is stale.")
+    process.exit(1)
+  }
+} else if (rendererCurrent !== rendererBody) {
+  writeFileSync(RENDERER, rendererBody)
+  console.log("sync-markdown: wrote the parser into the panel")
 }

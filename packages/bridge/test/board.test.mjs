@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { boardFrom } from '../lib/bridge.mjs'
+import { boardFrom, assistantTextFrom } from '../lib/bridge.mjs'
 
 /** A tool/result event, shaped as the harness emits it. */
 const resultEvent = (meta) => ({
@@ -87,4 +87,37 @@ test('events that are not boards produce nothing', () => {
 test('a tool result whose meta is not a board is not mistaken for one', () => {
   // Plenty of tools carry meta. Only one shape is the board.
   assert.equal(boardFrom(resultEvent({ bytes: 1200, path: '/tmp/x' })), null)
+})
+
+/* ------------------------------------------------------------- the envelope */
+
+test('assistant text is found inside the session event envelope', () => {
+  // The bug this pins: an assistant message arrives as
+  // `{type, data: {message: {role, content}}}`, and reading `event.message`
+  // finds nothing. The bridge then forwards every status event and no text,
+  // which on the surface is indistinguishable from a teacher that never
+  // answers — and the check that missed it asked only whether the *prompt*
+  // had been echoed back.
+  const event = {
+    type: 'assistant/message',
+    seq: 15,
+    data: {
+      turn: 1,
+      step: 1,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'Two principles.' }] },
+    },
+  }
+  assert.equal(assistantTextFrom(event), 'Two principles.')
+})
+
+test('a user message is not mistaken for the assistant', () => {
+  assert.equal(assistantTextFrom({ type: 'user/message', data: { message: { role: 'user', content: 'hi' } } }), null)
+})
+
+test('a message of only reasoning or tool calls has no text', () => {
+  const event = {
+    type: 'assistant/message',
+    data: { message: { role: 'assistant', content: [{ type: 'reasoning', text: 'thinking' }] } },
+  }
+  assert.equal(assistantTextFrom(event), null)
 })

@@ -237,7 +237,7 @@ export class Bridge {
         this.#emit(sessionId, { type: 'board', board })
       }
 
-      const text = extractAssistantText(event)
+      const text = assistantTextFrom(event)
       if (text !== null) {
         this.#emit(sessionId, {
           type: 'message',
@@ -279,17 +279,27 @@ export class Bridge {
  * @param {any} event
  * @returns {string | null}
  */
-function extractAssistantText(event) {
+export function assistantTextFrom(event) {
   if (!event) return null
-  const message = event.message ?? event
-  const role = message?.role
+  // A session event wraps its payload in `data`: an assistant message arrives as
+  // `{type: 'assistant/message', data: {message: {role, content}}}`. Looking for
+  // `event.message` finds nothing, and the failure is silent — the bridge
+  // forwards status events and no text at all, which on the surface looks like a
+  // teacher that never answers. Both shapes are accepted because the envelope is
+  // the harness's to change.
+  const payload = event.data ?? event
+  const message = payload.message ?? payload
+  const role = message?.role ?? payload.role
   if (role !== 'assistant') return null
-  const content = message?.content
+
+  const content = message.content ?? payload.content
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return null
   const parts = content
     .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
     .map((block) => block.text)
+  // A message that is only reasoning or tool calls has no text yet; that is not
+  // an empty answer, it is an answer not started.
   return parts.length ? parts.join('') : null
 }
 

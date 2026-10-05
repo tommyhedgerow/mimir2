@@ -1,0 +1,173 @@
+/*
+ * The Mimir panel, injected into the vault window.
+ *
+ * It is a fixed panel rather than part of SiYuan's layout: it needs no
+ * cooperation from SiYuan to exist, which is the whole reason it is injected.
+ * The palette follows SiYuan's own light and dark themes.
+ */
+
+.mimir-handle {
+  position: fixed;
+  z-index: 2147483000;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%) translateX(100%);
+  padding: 10px 4px;
+  border: 1px solid var(--b3-border-color, #e3d9c1);
+  border-right: 0;
+  border-radius: 4px 0 0 4px;
+  background: var(--b3-theme-surface, #f2ead6);
+  color: var(--b3-theme-on-surface, #665e4c);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  writing-mode: vertical-rl;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.mimir-handle--shown {
+  transform: translateY(-50%) translateX(0);
+}
+
+.mimir {
+  position: fixed;
+  z-index: 2147483000;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  width: 380px;
+  min-width: 280px;
+  background: var(--b3-theme-background, #faf6ea);
+  color: var(--b3-theme-on-background, #25231d);
+  border-left: 1px solid var(--b3-border-color, #e3d9c1);
+  font-family: var(--b3-font-family, 'Iowan Old Style', Palatino, Georgia, serif);
+  font-size: 14px;
+  line-height: 1.6;
+  transform: translateX(0);
+  transition: transform 0.15s ease;
+}
+
+.mimir--hidden {
+  transform: translateX(100%);
+}
+
+.mimir__rail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 14px;
+  border-bottom: 1px solid var(--b3-border-color, #e3d9c1);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mimir__model {
+  flex: 1;
+  overflow: hidden;
+  color: var(--b3-theme-on-surface, #665e4c);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mimir__btn {
+  padding: 2px 8px;
+  border: 1px solid var(--b3-border-color, #e3d9c1);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--b3-theme-on-surface, #665e4c);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mimir__btn:hover {
+  border-color: var(--b3-theme-primary, #4f7a5c);
+  color: var(--b3-theme-primary, #4f7a5c);
+}
+
+.mimir__stream {
+  overflow-y: auto;
+  padding: 14px 14px 20px;
+}
+
+.mimir__invocation {
+  margin: 8px 0 0;
+  color: var(--b3-theme-on-surface, #665e4c);
+}
+
+.mimir-turn {
+  position: relative;
+  margin: 0 0 16px;
+  padding-left: 12px;
+}
+
+.mimir-turn::before {
+  content: '';
+  position: absolute;
+  top: 0.42em;
+  left: 0;
+  width: 2px;
+  height: 1em;
+  border-radius: 2px;
+  background: var(--b3-border-color, #e3d9c1);
+}
+
+.mimir-turn--assistant::before {
+  background: var(--b3-theme-primary, #4f7a5c);
+}
+
+.mimir-turn__body > *:first-child { margin-top: 0; }
+.mimir-turn__body > *:last-child { margin-bottom: 0; }
+
+/* markdown */
+.mimir-h { margin: 1.1em 0 0.35em; font-weight: 600; line-height: 1.3; }
+h3.mimir-h { font-size: 1.12em; }
+h4.mimir-h { font-size: 1.02em; }
+h5.mimir-h, h6.mimir-h { font-size: 0.94em; color: var(--b3-theme-on-surface, #665e4c); }
+.mimir-p { margin: 0 0 0.7em; white-space: pre-wrap; }
+.mimir-list { margin: 0 0 0.7em; padding-left: 1.35em; }
+.mimir-quote { margin: 0 0 0.7em; padding-left: 0.85em; border-left: 2px solid var(--b3-border-color, #e3d9c1); color: var(--b3-theme-on-surface, #665e4c); }
+.mimir-rule { margin: 1em 0; border: 0; border-top: 1px solid var(--b3-border-color, #e3d9c1); }
+.mimir-table { display: block; overflow-x: auto; margin: 0 0 0.8em; border-collapse: collapse; font-size: 0.94em; }
+.mimir-table th, .mimir-table td { padding: 4px 8px; border: 1px solid var(--b3-border-color, #e3d9c1); text-align: left; }
+.mimir-table th { background: var(--b3-theme-surface, #f2ead6); }
+.mimir-pre { overflow-x: auto; margin: 0 0 0.8em; padding: 9px 11px; border: 1px solid var(--b3-border-color, #e3d9c1); border-radius: 4px; background: var(--b3-theme-surface, #f2ead6); font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; }
+.mimir-pre code { padding: 0; background: none; }
+.mimir-turn__body code { padding: 0.1em 0.32em; border-radius: 3px; background: var(--b3-theme-surface, #f2ead6); font-family: ui-monospace, Menlo, monospace; font-size: 0.88em; }
+.mimir-wikilink { color: var(--b3-theme-primary, #4f7a5c); border-bottom: 1px solid currentColor; cursor: pointer; }
+.mimir-diagram { margin: 0 0 0.9em; text-align: center; }
+.mimir-diagram svg { max-width: 100%; height: auto; }
+
+/* the board */
+.mimir-board { margin: 14px 0 20px; padding: 12px 14px; border: 1px solid var(--b3-border-color, #e3d9c1); border-radius: 5px; background: var(--b3-theme-surface, #f2ead6); }
+.mimir-board__node { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; }
+.mimir-board__dot { flex: none; width: 8px; height: 8px; margin-top: 0.45em; border: 1.5px solid var(--b3-theme-on-surface, #665e4c); border-radius: 50%; }
+.mimir-board__node--held .mimir-board__dot { border-color: var(--b3-theme-primary, #4f7a5c); background: var(--b3-theme-primary, #4f7a5c); }
+.mimir-board__node--learning .mimir-board__dot { border-color: var(--b3-theme-primary, #4f7a5c); }
+.mimir-board__node--learning { font-weight: 600; }
+.mimir-board__node--planned { color: var(--b3-theme-on-surface, #665e4c); }
+.mimir-board__drawing { margin: 12px 0; text-align: center; }
+.mimir-board__drawing svg { max-width: 100%; height: auto; }
+.mimir-board__missing { margin: 10px 0; padding-left: 8px; border-left: 2px solid #b5642f; color: var(--b3-theme-on-surface, #665e4c); font-family: ui-monospace, Menlo, monospace; font-size: 0.78em; }
+.mimir-board__question { margin: 12px 0 6px; font-weight: 600; }
+.mimir-board__option { margin: 0 0 3px; padding-left: 1em; }
+.mimir-board__hint { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--b3-border-color, #e3d9c1); color: var(--b3-theme-on-surface, #665e4c); font-style: italic; }
+
+/* backlinks */
+.mimir-backlinks h4 { margin: 0 0 8px; font-size: 0.94em; }
+.mimir-backlink { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--b3-border-color, #e3d9c1); margin: 0; }
+.mimir-backlink span:first-child { flex: 1; }
+.mimir-backlink__via { padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, Menlo, monospace; font-size: 9px; text-transform: uppercase; }
+.mimir-backlink__via--reference { background: color-mix(in srgb, var(--b3-theme-primary, #4f7a5c) 16%, transparent); color: var(--b3-theme-primary, #4f7a5c); }
+.mimir-backlink__via--mention { background: var(--b3-theme-background, #faf6ea); color: var(--b3-theme-on-surface, #665e4c); }
+
+/* composer */
+.mimir__composer { display: flex; gap: 6px; align-items: flex-end; padding: 8px 10px 12px; border-top: 1px solid var(--b3-border-color, #e3d9c1); }
+.mimir__composer textarea { flex: 1; min-height: 34px; max-height: 160px; padding: 7px 9px; border: 1px solid var(--b3-border-color, #e3d9c1); border-radius: 4px; background: var(--b3-theme-surface, #f2ead6); color: inherit; font-family: inherit; font-size: 14px; resize: none; outline: none; }
+.mimir__composer textarea:focus { border-color: var(--b3-theme-primary, #4f7a5c); }
+.mimir__send { padding: 7px 12px; border: 1px solid var(--b3-theme-primary, #4f7a5c); border-radius: 4px; background: var(--b3-theme-primary, #4f7a5c); color: var(--b3-theme-background, #faf6ea); font-family: ui-monospace, Menlo, monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
+.mimir__send:disabled { opacity: 0.45; }

@@ -33,6 +33,7 @@ module.exports = {
     'main.cjs',
     'launch.mjs',
     'setup/**',
+    'renderer/**',
     'package.json',
     '!**/node_modules/**',
   ],
