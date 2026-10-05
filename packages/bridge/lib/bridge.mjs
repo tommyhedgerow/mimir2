@@ -183,6 +183,58 @@ export class Bridge {
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
+  /**
+   * One turn, on a session id the harness will accept.
+   *
+   * The harness owns session identity and refuses an id it already knows. A
+   * panel that remembers a conversation across restarts therefore hands back an
+   * id from a previous run — and the *harness* is a new process that has never
+   * heard of it, so it is not a resume, it is a collision. The failure reaches
+   * the learner as `session "…" already exists`, which is true and useless.
+   *
+   * Sessions cannot be resumed across runs anyway: the harness holds their turns
+   * in memory, so a restored conversation is only the transcript this bridge
+   * kept. Given that, the honest thing is to retry on a fresh id and let the
+   * transcript carry the history.
+   *
+   * @param {string} sessionId
+   * @param {string} text
+   */
+  async #run(sessionId, text) {
+    const attempt = (id) =>
+      this.harness.session(id).run(text, {
+        onNotification: (notification) => this.#forwardNotification(id, notification),
+      })
+
+    try {
+      return { result: await attempt(sessionId), sessionId }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!/already exists/i.test(message)) throw error
+
+      const fresh = `${sessionId}-${Date.now().toString(36)}`
+      this.#renameSession(sessionId, fresh)
+      // The caller has to be told which name the turn happened under. Returning
+      // the one that was refused would leave the surface asking under an id the
+      // session no longer has, and every later turn would be a fresh session.
+      return { result: await attempt(fresh), sessionId: fresh }
+    }
+  }
+
+  /**
+   * Moves a bridge session to a new id, so the transcript follows the turn.
+   *
+   * @param {string} from
+   * @param {string} to
+   */
+  #renameSession(from, to) {
+    const session = this.sessions.get(from)
+    if (!session) return
+    this.sessions.delete(from)
+    session.id = to
+    this.sessions.set(to, session)
+  }
+
   /** @param {string} sessionId */
   getSession(sessionId) {
     const session = this.sessions.get(sessionId)
@@ -207,15 +259,17 @@ export class Bridge {
     session.busy = true
     this.#emit(sessionId, { type: 'status', status: 'running' })
     try {
-      const result = await this.harness.session(sessionId).run(text, {
-        onNotification: (notification) => this.#forwardNotification(sessionId, notification),
-      })
+      const outcome = await this.#run(sessionId, text)
+      const result = outcome.result
+      const settledId = outcome.sessionId
+      const settled = this.sessions.get(settledId) ?? session
       const finalText = result.finalResponse ?? ''
       if (finalText) {
-        session.record({ type: 'message', messageId: `final-${Date.now()}`, role: 'assistant', text: finalText })
+        settled.record({ type: 'message', messageId: `final-${Date.now()}`, role: 'assistant', text: finalText })
       }
-      this.#emit(sessionId, { type: 'status', status: 'idle' })
-      return { sessionId, text: finalText, events: result.events.length }
+      this.#emit(settledId, { type: 'status', status: 'idle' })
+      settled.busy = false
+      return { sessionId: settledId, text: finalText, events: (result.events ?? []).length }
     } catch (error) {
       this.#emit(sessionId, { type: 'status', status: 'idle' })
       session.busy = false

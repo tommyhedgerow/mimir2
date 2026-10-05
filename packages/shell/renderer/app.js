@@ -21,9 +21,33 @@ const sendEl = document.getElementById('send')
 const modelEl = document.getElementById('model')
 const whereEl = document.getElementById('where')
 
-const SESSION_KEY = 'mimir.sessionId'
-let sessionId = localStorage.getItem(SESSION_KEY) || `mimir-${Date.now().toString(36)}`
-localStorage.setItem(SESSION_KEY, sessionId)
+/**
+ * The conversation's name, unique to this run of the application.
+ *
+ * It used to be one id kept in `localStorage` and reused forever, which produced
+ * `session "mimir-muv1roe8" already exists` on the second launch: the harness owns
+ * session identity, refuses an id it has already seen, and a *new* harness
+ * process has never seen the id the previous run left behind — so the id was
+ * neither resumable nor acceptable.
+ *
+ * Sessions cannot survive a restart in any case. The harness keeps their turns in
+ * memory, so what is restored is the transcript this application kept, not a live
+ * conversation. So the run names its sessions: a distinct prefix per launch, a
+ * counter within it. Old keys are cleared rather than migrated, because an id
+ * from a previous run is precisely the thing that cannot be used.
+ */
+const RUN = `mimir-${Date.now().toString(36)}`
+let sessionId = `${RUN}-1`
+let conversation = 1
+const countKey = `${RUN}.conversations`
+localStorage.removeItem('mimir.sessionId')
+
+/** Starts a new conversation. The old one is not resumable; its notes are in the vault. */
+function nextSession() {
+  conversation += 1
+  sessionId = `${RUN}-${conversation}`
+  localStorage.setItem(countKey, String(conversation))
+}
 
 /* ------------------------------------------------------------------- markdown */
 
@@ -475,7 +499,11 @@ async function ask() {
   sendEl.disabled = true
   streamEl.scrollTop = streamEl.scrollHeight
   try {
-    await api.ask(sessionId, text)
+    // The bridge may settle the turn on a different id than the one asked for,
+    // when the harness refuses a name. Following it keeps the conversation one
+    // conversation.
+    const outcome = await api.ask(sessionId, text)
+    if (outcome?.sessionId && outcome.sessionId !== sessionId) sessionId = outcome.sessionId
     // The answer comes back over the event stream; this reads it again so a
     // dropped event delays an answer rather than losing it.
     const history = await api.conversation(sessionId)
@@ -535,6 +563,7 @@ const SIZES = [15, 16.5, 18.5]
 
 const themeEl = document.getElementById('theme')
 const sizeEl = document.getElementById('size')
+const freshEl = document.getElementById('fresh')
 
 function applyTheme(mode) {
   if (mode) {
@@ -571,6 +600,26 @@ sizeEl.addEventListener('click', () => {
   const current = Number(localStorage.getItem(SIZE_KEY) ?? 16.5)
   const at = SIZES.indexOf(current)
   applySize(((at === -1 ? 1 : at) + 1) % SIZES.length)
+})
+
+/**
+ * A new conversation.
+ *
+ * The old one is left alone: its turns are in the harness, its notes are in the
+ * vault, and the transcript on screen is replaced because the reader asked for a
+ * fresh start. Nothing is lost that was not already written down — which is the
+ * point of a vault.
+ */
+freshEl.addEventListener('click', () => {
+  nextSession()
+  turns.clear()
+  order.length = 0
+  streamEl.textContent = ''
+  const opening = document.createElement('p')
+  opening.className = 'teacher__invocation'
+  opening.textContent = 'A new conversation. What are we learning?'
+  streamEl.append(opening)
+  inputEl.focus()
 })
 
 /* --------------------------------------------------------------------- start */

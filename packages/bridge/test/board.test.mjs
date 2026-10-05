@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { boardFrom, assistantTextFrom } from '../lib/bridge.mjs'
+import { Bridge, boardFrom, assistantTextFrom } from '../lib/bridge.mjs'
 
 /** A tool/result event, shaped as the harness emits it. */
 const resultEvent = (meta) => ({
@@ -120,4 +120,51 @@ test('a message of only reasoning or tool calls has no text', () => {
     data: { message: { role: 'assistant', content: [{ type: 'reasoning', text: 'thinking' }] } },
   }
   assert.equal(assistantTextFrom(event), null)
+})
+
+/* --------------------------------------------------------- session identity */
+
+test('a session id the harness refuses is retried under a fresh one', async () => {
+  // The reported failure: `session "mimir-muv1roe8" already exists`. The panel
+  // remembered a conversation across restarts, the harness is a new process that
+  // has never heard of that id, and it refuses an id it knows — so an id from a
+  // previous run is neither resumable nor acceptable.
+  const asked = []
+  const harness = {
+    session(id) {
+      return {
+        run: async () => {
+          asked.push(id)
+          if (asked.length === 1) throw new Error(`session "${id}" already exists`)
+          return { finalResponse: 'answered', events: [] }
+        },
+      }
+    },
+  }
+
+  const bridge = new Bridge({ vault: null })
+  bridge.harness = harness
+  bridge.started = true
+  bridge.openSession('mimir-old-1')
+  const result = await bridge.prompt('mimir-old-1', 'hello')
+
+  assert.equal(result.text, 'answered', 'the turn did not complete')
+  assert.equal(result.sessionId, asked[1], 'the turn did not report the id it settled on')
+  assert.equal(asked.length, 2, 'the retry did not happen')
+  assert.equal(asked[0], 'mimir-old-1', 'the first attempt should use the id as given')
+  assert.notEqual(asked[1], 'mimir-old-1', 'the retry must use a different id')
+
+  // The transcript has to follow the session to its new name, or the answer is
+  // recorded against an id nothing is listening on.
+  assert.equal(bridge.getSession(asked[1]).messages.length, 2)
+})
+
+test('any other failure is not swallowed', async () => {
+  const harness = {
+    session: () => ({ run: async () => { throw new Error('the model is unreachable') } }),
+  }
+  const bridge = new Bridge({ vault: null })
+  bridge.harness = harness
+  bridge.started = true
+  await assert.rejects(() => bridge.prompt('mimir-x-1', 'hello'), /unreachable/)
 })
