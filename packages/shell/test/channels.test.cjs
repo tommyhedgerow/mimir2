@@ -14,6 +14,7 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
+const crypto = require('node:crypto')
 
 const main = readFileSync(join(__dirname, '..', 'main.cjs'), 'utf8')
 const preload = readFileSync(join(__dirname, '..', 'renderer', 'preload.cjs'), 'utf8')
@@ -73,4 +74,138 @@ test('the preload exposes what the page reaches for', () => {
 
   const missing = [...called].filter((name) => !offered.has(name))
   assert.deepEqual(missing, [], `the page calls api.${missing.join(', api.')} which is not exposed`)
+})
+
+test('the stylesheet keeps both marks and states them in the right order', () => {
+  // Three separate block replacements in one session each removed something the
+  // replacement did not name: the base `.rail__mark` rule, the light override,
+  // and — separately — the base rule again after it had been restored, which
+  // left it written *after* the overrides and therefore winning in both
+  // appearances. None of that is visible in a diff read quickly, and all of it
+  // is visible in one screenshot.
+  const css = readFileSync(join(__dirname, '..', 'renderer', 'app.css'), 'utf8')
+
+  assert.match(css, /--mark-image:\s*url\('data:image\/png;base64,/, 'no light mark is inlined')
+  assert.match(css, /--mark-image-light:\s*url\('data:image\/png;base64,/, 'no dark mark is inlined')
+
+  const rules = [...css.matchAll(/\.rail__mark\s*\{[^}]*background-image:\s*var\((--mark-image(?:-light)?)\)/g)]
+  const names = rules.map((m) => m[1])
+  assert.ok(names.length >= 3, `expected at least three mark rules, found ${names.length}`)
+
+  // The base rule (the bare `.rail__mark` selector) has to come first: every one
+  // of these selectors has the same specificity, so the last one written wins.
+  const baseAt = css.indexOf('\n.rail__mark {')
+  assert.ok(baseAt !== -1, 'the base .rail__mark rule is missing')
+  for (const rule of rules) {
+    if (/^:root/.test(css.slice(rule.index).split('{')[0].trim())) continue
+    assert.ok(rule.index > baseAt, 'a mark override is written before the base rule')
+  }
+
+  // The explicit choices have to come after the base and after the media query.
+  const lightAt = css.indexOf(":root[data-theme='light'] .rail__mark")
+  const darkAt = css.indexOf(":root[data-theme='dark'] .rail__mark")
+  assert.ok(lightAt > baseAt, 'the light choice is written before the base rule')
+  assert.ok(darkAt > baseAt, 'the dark choice is written before the base rule')
+  assert.ok(lightAt > darkAt, 'the light choice must be last, or a dark preference beats it')
+})
+
+test('the stylesheet still lays the window out', () => {
+  // The base rules — the reset, the full height, and the two grids that make the
+  // three panes — were deleted by a replacement that was only meant to touch the
+  // palette. Nothing about the result looked like a missing rule: the window
+  // simply filled its top fifth and the rest was empty, which reads as a
+  // rendering artefact rather than as a stylesheet that lost its layout.
+  //
+  // Each of these is load-bearing for the window filling its frame.
+  const css = readFileSync(join(__dirname, '..', 'renderer', 'app.css'), 'utf8')
+  const required = [
+    [/\*\s*\{[^}]*box-sizing:\s*border-box/, 'the box-sizing reset'],
+    [/html,\s*body\s*\{[^}]*height:\s*100%/, 'html and body at full height'],
+    [/body\s*\{[^}]*display:\s*grid/, 'body as a grid'],
+    [/body\s*\{[^}]*grid-template-rows:\s*var\(--rail\)/, 'the rail row'],
+    [/\.panes\s*\{[^}]*grid-template-columns:\s*var\(--vault\)/, 'the three columns'],
+  ]
+  for (const [pattern, what] of required) {
+    assert.match(css, pattern, `${what} is missing from the stylesheet`)
+  }
+})
+
+test('the rail clears the window controls', () => {
+  // `hiddenInset` puts the traffic lights inside the content area, so the rail
+  // has to start far enough right that nothing is drawn under them.
+  const css = readFileSync(join(__dirname, '..', 'renderer', 'app.css'), 'utf8')
+  const rail = /\.rail\s*\{[^}]*padding:\s*0\s+\d+px\s+0\s+(\d+)px/.exec(css)
+  assert.ok(rail, 'the rail has no left padding')
+  assert.ok(Number(rail[1]) >= 90, `the rail starts at ${rail[1]}px, under the traffic lights`)
+})
+
+test('the animation page carries its own script', () => {
+  // A `<script src>` in this page never loads. On a `file://` URL each file is
+  // its own opaque origin, so `script-src 'self'` matches none of them, and the
+  // failure is silent: the video plays and none of the code around it runs. The
+  // page is therefore generated with the script written into it, and this checks
+  // that the placeholder it is generated from is still there.
+  const renderer = join(__dirname, '..', 'renderer')
+  const page = readFileSync(join(renderer, 'splash.html'), 'utf8')
+  const script = readFileSync(join(renderer, 'splash.js'), 'utf8')
+
+  assert.ok(page.includes('<!--SPLASH_SCRIPT-->'), 'the splash page has no placeholder for its script')
+  assert.ok(!/<script[^>]+src=/.test(page), 'the splash page loads a script by src, which the CSP blocks')
+  assert.ok(!/<\/script/i.test(script), 'splash.js contains a closing script tag, which would end the document early')
+
+  // And the shell has to know the globals the script defines, by name.
+  const main = readFileSync(join(__dirname, '..', 'main.cjs'), 'utf8')
+  for (const name of ['mimirSplashDuration', 'mimirSplashSkipped', 'mimirSplashLeave']) {
+    assert.ok(script.includes(name), `${name} is not defined by the splash script`)
+    assert.ok(main.includes(name), `the shell never asks for ${name}`)
+  }
+})
+
+test('the animation script hashes to exactly what the page carries', () => {
+  // A Content Security Policy hash covers the bytes *between* the tags, and the
+  // shell and the browser have to agree on them to the character. They did not:
+  // the placeholder sat on its own line, so the newline and the indentation
+  // around it were part of the hashed text. The browser said so in its refusal —
+  // the hash it reported was the hash of seven whitespace characters — and the
+  // script never ran, silently, in the packaged application.
+  const renderer = join(__dirname, '..', 'renderer')
+  const script = readFileSync(join(renderer, 'splash.js'), 'utf8')
+  const page = readFileSync(join(renderer, 'splash.html'), 'utf8')
+  const safe = script.replace(/<\/script/gi, '<\\/script')
+
+  const between = /<script>([\s\S]*?)<\/script>/.exec(page.replace('<!--SPLASH_SCRIPT-->', () => safe))
+  assert.ok(between, 'no script tag to hash')
+
+  const hash = (text) => crypto.createHash('sha256').update(text, 'utf8').digest('base64')
+  assert.equal(
+    hash(safe),
+    hash(between[1]),
+    'the shell and the page disagree about what is inside the script tag, so the CSP hash will not match',
+  )
+})
+
+test('the page declares the directive the shell rewrites', () => {
+  // This is the bug that took longest to see, because nothing failed. The shell
+  // substituted `script-src 'self'`; the page never contained that directive, so
+  // the substitution was a no-op, and the Content Security Policy fell back to
+  // `default-src 'none'` — which refuses an inline script. The video played, the
+  // layout was right, and the only trace was one line in a devtools console that
+  // nobody opens on a splash screen.
+  //
+  // A substitution against a string that might not be there has to be checked.
+  const renderer = join(__dirname, '..', 'renderer')
+  const page = readFileSync(join(renderer, 'splash.html'), 'utf8')
+  const main = readFileSync(join(__dirname, '..', 'main.cjs'), 'utf8')
+
+  assert.ok(
+    page.includes("script-src 'none'"),
+    'the splash page does not declare script-src, so the shell has nothing to replace',
+  )
+  assert.ok(
+    main.includes(`script-src 'none'`),
+    'the shell no longer replaces the directive the page declares',
+  )
+  // And the hash it inserts must be one the page can actually match.
+  assert.match(main, /createHash\('sha256'\)/, 'the shell does not hash the script')
+  assert.match(main, /script-src 'sha256-\$\{digest\}'/, 'the shell does not put the hash in the policy')
 })

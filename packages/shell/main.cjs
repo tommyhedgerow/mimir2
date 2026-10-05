@@ -33,8 +33,9 @@ delete process.env.ELECTRON_RUN_AS_NODE
 
 const { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme } = require('electron')
 const { spawn } = require('node:child_process')
-const { join } = require('node:path')
-const { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, cpSync, rmSync, readdirSync } = require('node:fs')
+const { join, dirname } = require('node:path')
+const { createHash } = require('node:crypto')
+const { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, cpSync, rmSync, readdirSync, statSync } = require('node:fs')
 const { createServer } = require('node:net')
 
 const here = __dirname
@@ -445,6 +446,8 @@ function startBridge(paths) {
  * slow it stays. A splash that outlives its reason is worse than none.
  */
 let splashWindow = null
+let mainWindow = null
+let setupWindow = null
 
 function createSplash(paths) {
   splashWindow = new BrowserWindow({
@@ -455,12 +458,16 @@ function createSplash(paths) {
     movable: false,
     center: true,
     show: false,
+    // Not in the window list a person cycles through, and not what the Dock
+    // activates: it is a title card, not a window of the application.
+    skipTaskbar: true,
+    focusable: true,
     backgroundColor: '#06070d',
     // It has no controls and needs none: the page is a video element and a
     // style block, both of them ours.
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
-  splashWindow.loadFile(join(paths.renderer, 'splash.html'))
+  splashWindow.loadFile(writeSplash(paths))
   splashWindow.once('ready-to-show', () => {
     splashWindow?.show()
     note('startup animation up')
@@ -468,29 +475,146 @@ function createSplash(paths) {
   return splashWindow
 }
 
-/** Fades the animation out and closes it. */
+/**
+ * The animation's page, generated with everything it needs beside it.
+ *
+ * This is fiddly for one reason and it is worth naming: **a `file://` page is
+ * its own opaque origin**, so nothing that normally works works here.
+ *
+ *   * `<script src="splash.js">` is refused — `script-src 'self'` matches no
+ *     file, and the refusal is silent apart from a devtools line.
+ *   * An inline `<script>` is refused too, because `'unsafe-inline'` is not
+ *     granted and should not be.
+ *   * Relative media is not found: the page lives in the temporary directory,
+ *     so `startup/mimir-startup.mp4` resolves to a file that is not there.
+ *
+ * So the page is assembled from its parts:
+ *
+ *   * the script goes inline, and its **hash is computed here and named in that
+ *     page's own Content Security Policy**. That is what a hash is for: the
+ *     inline script runs, and nothing else can — no `'unsafe-inline'`, and the
+ *     policy stays as tight as it was.
+ *   * the poster is inlined as a data URI, since it is 24 KB.
+ *   * the clip is copied next to the page, so a relative `src` finds it. It is
+ *     copied once and only re-copied if the application's copy changes, because
+ *     it is a megabyte.
+ *
+ * The page is written to the temporary directory: a packaged bundle is read-only
+ * on macOS, and this is generated content either way.
+ */
+function writeSplash(paths) {
+  const script = readFileSync(join(paths.renderer, 'splash.js'), 'utf8')
+  const page = readFileSync(join(paths.renderer, 'splash.html'), 'utf8')
+
+  // No `</script>` may appear inside the script, or the document ends early.
+  const safe = script.replace(/<\/script/gi, '<\\/script')
+  const digest = createHash('sha256').update(safe, 'utf8').digest('base64')
+
+  const poster = readFileSync(join(paths.renderer, 'startup', 'poster.png'))
+  const mediaName = 'mimir-startup.mp4'
+  const mediaSource = join(paths.renderer, 'startup', mediaName)
+
+  const dir = join(app.getPath('temp'), 'mimir-startup')
+  mkdirSync(dir, { recursive: true })
+  copyIfChanged(mediaSource, join(dir, mediaName))
+
+  const html = page
+    // The page declares `script-src 'none'` and this turns it into the
+    // one hash that may run. It used to look for `script-src 'self'`, which the
+    // page did not contain — so the substitution did nothing, at no point did
+    // anything fail, and the fallback was `default-src 'none'`, which refuses an
+    // inline script without saying so beyond a devtools line.
+    .replace("script-src 'none'", `script-src 'sha256-${digest}'`)
+    .replace('poster="startup/poster.png"', `poster="data:image/png;base64,${poster.toString('base64')}"`)
+    .replace('startup/mimir-startup.mp4', mediaName)
+    .replace('<!--SPLASH_SCRIPT-->', () => safe)
+
+  const target = join(dir, 'splash.html')
+  writeFileSync(target, html)
+  return target
+}
+
+/** Copies only when the destination is missing or a different size. */
+function copyIfChanged(source, target) {
+  try {
+    if (statSync(target).size === statSync(source).size) return
+  } catch {
+    // Not there yet.
+  }
+  cpSync(source, target)
+}
+
+/**
+ * Takes the animation down, once it has finished playing.
+ *
+ * It is NOT closed as soon as the window is ready. The clip is 8.7 seconds and
+ * the application starts in about two, so closing on readiness cut off most of
+ * an animation somebody asked to see. The window is prepared behind it the whole
+ * time and is revealed the moment the animation ends.
+ *
+ * Two ways it can end, and neither is a fixed timer:
+ *
+ *   * the animation reports that it finished, or that it never started, and
+ *   * a cap, so a clip that hangs cannot hold the application closed.
+ *
+ * A click takes it away immediately, because nobody should have to watch an
+ * animation twice.
+ */
+const SPLASH_CAP_MS = 15000
+
 async function closeSplash() {
   const window = splashWindow
   if (!window || window.isDestroyed()) return
   splashWindow = null
+
   try {
-    // Has it actually been seen? A splash taken away after eighty milliseconds
-    // is a flicker, and the point of it is to cover a wait.
-    const seen = await window.webContents.executeJavaScript(
-      'window.mimirSplashSeen ? window.mimirSplashSeen() : false',
+    // How long it runs, from the video itself. Null if it never loaded.
+    const duration = await window.webContents.executeJavaScript(
+      'window.mimirSplashDuration ? window.mimirSplashDuration() : null',
       true,
     )
-    if (!seen) await new Promise((resolve) => setTimeout(resolve, 600))
+
+    if (duration === null) {
+      // No clip to watch: do not keep a blank window in front of the app.
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    } else {
+      await window.webContents.executeJavaScript(
+        `new Promise((resolve) => {
+           const video = document.getElementById('anim')
+           if (!video || video.ended || window.mimirSplashSkipped) return resolve(true)
+           video.addEventListener('ended', () => resolve(true), { once: true })
+           // Skipping ends the wait as well as the picture.
+           const watch = setInterval(() => {
+             if (window.mimirSplashSkipped) {
+               clearInterval(watch)
+               resolve(true)
+             }
+           }, 120)
+           // A clip that stalls must not hold the window closed.
+           setTimeout(() => {
+             clearInterval(watch)
+             resolve(false)
+           }, ${SPLASH_CAP_MS})
+         })`,
+        true,
+      )
+    }
+
     await window.webContents.executeJavaScript(
-      'document.body.classList.add("leaving"); true',
+      'window.mimirSplashLeave ? window.mimirSplashLeave() : true',
       true,
     )
     await new Promise((resolve) => setTimeout(resolve, 340))
+
+    const skipped = await window.webContents.executeJavaScript(
+      'window.mimirSplashSkipped === true',
+      true,
+    )
+    note(skipped ? 'startup animation skipped' : 'startup animation finished')
   } catch {
     // If it will not fade, it still has to go.
   }
   if (!window.isDestroyed()) window.close()
-  note('startup animation down')
 }
 
 function createWindow() {
@@ -516,7 +640,11 @@ function createWindow() {
   })
 
   window.loadFile(join(paths.renderer, 'app.html'))
-  window.once('ready-to-show', () => window.show())
+  // Not shown here: the animation decides when this appears.
+  mainWindow = window
+  window.once('closed', () => {
+    if (mainWindow === window) mainWindow = null
+  })
   return window
 }
 
@@ -592,7 +720,11 @@ function createSetupWindow() {
     },
   })
   window.loadFile(join(here, 'setup', 'index.html'))
+  setupWindow = window
   window.once('ready-to-show', () => window.show())
+  window.once('closed', () => {
+    if (setupWindow === window) setupWindow = null
+  })
   return window
 }
 
@@ -623,13 +755,21 @@ async function launch(paths) {
   const window = createWindow()
   forwardBridgeEvents()
 
-  // The animation goes when the window can actually be shown, not when it has
-  // been asked for — otherwise it is taken away and there is nothing behind it.
+  // The animation is playing in front of this. `show()` is deliberately not
+  // called yet: the window is built and drawn behind the animation, and shown
+  // the moment the animation ends, so there is no gap between the two.
   window.once('ready-to-show', () => {
-    closeSplash().catch(() => {})
+    // A click or a key takes the animation away at once. The page handles that
+    // itself and flags it, which the wait inside `closeSplash` sees.
+    closeSplash()
+      .catch(() => {})
+      .finally(() => {
+        if (!window.isDestroyed()) {
+          window.show()
+          window.focus()
+        }
+      })
   })
-  // And if the window never says so, the animation does not stay forever.
-  setTimeout(() => closeSplash().catch(() => {}), 6000)
 }
 
 // Anything that escapes — a bad module, a missing file, an unhandled rejection
@@ -702,7 +842,23 @@ app.whenReady().then(async () => {
   note('no model connected; opening setup')
   const setup = createSetupWindow()
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createSetupWindow()
+    // Only when there is genuinely nothing to show. `getAllWindows()` is not
+    // enough on its own during start-up: the animation is a window that closes
+    // by itself, and the vault window exists but is deliberately still hidden
+    // behind it — so a Dock click in that second could have found no *visible*
+    // window and opened the setup sheet on top of a running application.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show()
+      mainWindow.focus()
+      return
+    }
+    if (setupWindow && !setupWindow.isDestroyed()) {
+      setupWindow.show()
+      setupWindow.focus()
+      return
+    }
+    if (BrowserWindow.getAllWindows().some((window) => !window.isDestroyed())) return
+    createSetupWindow()
   })
 })
 

@@ -32,9 +32,22 @@ localStorage.setItem(SESSION_KEY, sessionId)
  * `textContent`, so a note or an answer containing markup is displayed rather
  * than executed.
  */
+/**
+ * Everything below a note's frontmatter.
+ *
+ * The frontmatter is metadata the vault's tooling reads — type, status,
+ * dependencies, review dates — and none of it is prose. Printed at the top of
+ * the reader it is a wall of `key: value` above every note, which is how it was
+ * first seen: the note's first visible line was `type: concept`.
+ */
+function bodyOf(text) {
+  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(text)
+  return match ? text.slice(match[0].length) : text
+}
+
 function draw(container, text) {
   container.textContent = ''
-  const blocks = markdown.parse(text)
+  const blocks = markdown.parse(bodyOf(text))
   for (const block of blocks) container.append(block_(block))
   diagrams(container)
 }
@@ -149,7 +162,7 @@ function runs(parent, list) {
           event.preventDefault()
           const found = await api.find(run.target)
           const match = (found || [])[0]
-          if (match) openDocument(match.id, match.title)
+          if (match) openDocument(match.path ?? match.id, match.title)
           else a.classList.add('wikilink--missing')
         })
         parent.append(a)
@@ -183,6 +196,109 @@ function diagrams(root) {
 let documents = []
 let current = null
 
+/**
+ * The vault, as the folder structure it actually is.
+ *
+ * It was a flat list grouped by the first path segment, which showed `Learn`
+ * once and then every note under it at the same depth — so the five folders the
+ * method writes into were invisible, and a vault with a hundred notes would have
+ * been one undifferentiated column. The tree is the vault's own shape, with the
+ * folders foldable, and the folders open by default because seeing the structure
+ * is the point.
+ */
+const COLLAPSED_KEY = 'mimir.collapsedFolders'
+
+function collapsedFolders() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]'))
+  } catch {
+    return new Set()
+  }
+}
+
+function saveCollapsed(set) {
+  localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...set]))
+}
+
+/** Nests `Learn/Concepts/x.md` into folders rather than printing the path. */
+function nest(documents) {
+  const root = { name: '', folders: new Map(), notes: [] }
+  for (const doc of documents) {
+    const parts = doc.path.split('/').filter(Boolean)
+    const file = parts.pop()
+    let node = root
+    for (const part of parts) {
+      if (!node.folders.has(part)) node.folders.set(part, { name: part, folders: new Map(), notes: [] })
+      node = node.folders.get(part)
+    }
+    // The extension is not part of the note's name, and the folder tree is not
+    // the Finder: `How this vault works.md` reads as a filename, `How this vault
+    // works` reads as a note.
+    node.notes.push({ ...doc, name: (file ?? doc.title).replace(/\.md$/, '') })
+  }
+  return root
+}
+
+let currentPath = null
+
+function renderTree(node, depth, collapsed) {
+  const folderNames = [...node.folders.keys()].sort((a, b) => a.localeCompare(b))
+  const notes = [...node.notes].sort((a, b) => a.name.localeCompare(b.name))
+
+  for (const name of folderNames) {
+    const child = node.folders.get(name)
+    const path = child.path ?? `${node.path ? `${node.path}/` : ''}${name}`
+    child.path = path
+    const isCollapsed = collapsed.has(path)
+
+    const row = document.createElement('button')
+    row.className = 'vault__folder'
+    row.style.setProperty('--depth', String(depth))
+    row.dataset.path = path
+    row.setAttribute('aria-expanded', String(!isCollapsed))
+
+    const chevron = document.createElement('span')
+    chevron.className = 'vault__chevron'
+    chevron.textContent = isCollapsed ? '▸' : '▾'
+    const label = document.createElement('span')
+    // The count is what makes a folded folder worth folding rather than hiding.
+    const inside = countNotes(child)
+    label.textContent = name
+    const count = document.createElement('span')
+    count.className = 'vault__count'
+    count.textContent = inside ? String(inside) : ''
+    row.append(chevron, label, count)
+
+    row.addEventListener('click', () => {
+      const now = collapsedFolders()
+      if (now.has(path)) now.delete(path)
+      else now.add(path)
+      saveCollapsed(now)
+      loadVault()
+    })
+    vaultEl.append(row)
+
+    if (!isCollapsed) renderTree(child, depth + 1, collapsed)
+  }
+
+  for (const doc of notes) {
+    const button = document.createElement('button')
+    button.className = 'vault__doc'
+    button.style.setProperty('--depth', String(depth))
+    button.textContent = doc.name
+    button.title = doc.path
+    button.classList.toggle('vault__doc--open', currentPath === doc.path)
+    button.addEventListener('click', () => openDocument(doc.path, doc.title))
+    vaultEl.append(button)
+  }
+}
+
+function countNotes(node) {
+  let total = node.notes.length
+  for (const child of node.folders.values()) total += countNotes(child)
+  return total
+}
+
 async function loadVault() {
   const tree = await api.vaultTree()
   documents = tree?.documents ?? []
@@ -196,40 +312,16 @@ async function loadVault() {
     return
   }
 
-  // Grouped by the top of their path, which is how the vault is organised:
-  // Sessions, Concepts, Maps.
-  const groups = new Map()
-  for (const doc of documents) {
-    const parts = doc.path.split('/').filter(Boolean)
-    const group = parts.length > 1 ? parts[0] : ''
-    if (!groups.has(group)) groups.set(group, [])
-    groups.get(group).push(doc)
-  }
-
-  for (const [group, docs] of groups) {
-    if (group) {
-      const heading = document.createElement('p')
-      heading.className = 'vault__group'
-      heading.textContent = group
-      vaultEl.append(heading)
-    }
-    for (const doc of docs) {
-      const button = document.createElement('button')
-      button.className = 'vault__doc'
-      button.textContent = doc.title || doc.path.split('/').pop()
-      button.title = doc.path
-      button.addEventListener('click', () => openDocument(doc.id, doc.title))
-      vaultEl.append(button)
-    }
-  }
+  renderTree(nest(documents), 0, collapsedFolders())
 }
 
-async function openDocument(docId, title) {
-  for (const button of vaultEl.querySelectorAll('.vault__doc')) {
-    button.classList.toggle('vault__doc--open', button.textContent === title)
-  }
-  const doc = await api.document(docId)
+async function openDocument(docPath, title) {
+  currentPath = docPath
   current = title
+  for (const button of vaultEl.querySelectorAll('.vault__doc')) {
+    button.classList.toggle('vault__doc--open', button.title === docPath)
+  }
+  const doc = await api.document(docPath)
   readerEl.textContent = ''
   if (!doc) {
     const p = document.createElement('p')
@@ -260,7 +352,7 @@ async function openDocument(docId, title) {
       line.append(via)
       line.addEventListener('click', async () => {
         const found = await api.find(row.title || '')
-        if ((found || [])[0]) openDocument(found[0].id, found[0].title)
+        if ((found || [])[0]) openDocument(found[0].path ?? found[0].id, found[0].title)
       })
       section.append(line)
     }

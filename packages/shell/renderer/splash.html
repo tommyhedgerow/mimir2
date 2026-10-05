@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; media-src 'self'"
+      content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; script-src 'none'"
     />
     <title>Mímir</title>
     <style>
@@ -38,6 +38,27 @@
         object-fit: contain;
       }
 
+      /* The way out. Late enough not to spoil the opening, quiet enough not to
+         compete with it. */
+      .hint {
+        position: fixed;
+        right: 14px;
+        bottom: 12px;
+        margin: 0;
+        color: #7f9dad;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        opacity: 0;
+        transition: opacity 400ms ease;
+        pointer-events: none;
+      }
+
+      body.skippable .hint {
+        opacity: 0.75;
+      }
+
       /* The animation fades rather than cutting, so the handover to the window
          behind it is not a flash. */
       body {
@@ -55,7 +76,8 @@
       <video id="anim" autoplay muted playsinline poster="startup/poster.png">
         <source src="startup/mimir-startup.mp4" type="video/mp4" />
       </video>
+      <p class="hint" id="hint">click to skip</p>
     </div>
-    <script src="splash.js"></script>
+<script><!--SPLASH_SCRIPT--></script>
   </body>
 </html>
