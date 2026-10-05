@@ -81,14 +81,27 @@
         refers to, kept in view of it.
       -->
       <aside class="lesson-pane" id="lesson-pane">
+        <div class="tabs tabs--pane" role="tablist">
+          <button class="tab tab--on" id="tab-map" role="tab" aria-selected="true">map</button>
+          <button class="tab" id="tab-questions" role="tab" aria-selected="false">questions</button>
+        </div>
         <div class="lesson-pane__inner">
-          <div class="lesson-pane__empty" id="lesson-empty">
-            <p class="teacher__invocation">
-              The board appears here. The teacher publishes the map and the question as
-              the lesson runs.
-            </p>
+          <div class="panel panel--map" id="panel-map">
+            <div class="lesson-pane__empty" id="lesson-empty">
+              <p class="teacher__invocation">
+                The map appears here. The teacher publishes the spine as the lesson runs.
+              </p>
+            </div>
+            <div class="map" id="map" hidden></div>
           </div>
-          <div class="lesson-pane__board" id="board" hidden></div>
+          <div class="panel panel--questions" id="panel-questions" hidden>
+            <div class="lesson-pane__empty" id="question-empty">
+              <p class="teacher__invocation">
+                Questions appear here as the teacher checks what you hold.
+              </p>
+            </div>
+            <div class="questions" id="board" hidden></div>
+          </div>
         </div>
       </aside>
     </div>

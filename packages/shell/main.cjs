@@ -1392,6 +1392,172 @@ ipcMain.handle('mimir:open-vault', async () => {
   return { ok: true, vault: vaultPath }
 })
 
+/**
+ * A Wikipedia article's own summary of itself, for a link.
+ *
+ * The vault's notes are full of Wikipedia links — it is a standing rule of the
+ * method that every proper noun gets one — and a link you have to leave the
+ * lesson to follow is a link that interrupts it. So a link says what it points
+ * at when it is hovered.
+ *
+ * The fetch happens HERE, not in the page. The page has no network of its own:
+ * `default-src 'none'` with no `connect-src` means a fetch from it is refused,
+ * and it has no business reaching the internet in any case. The summary, the
+ * description and the thumbnail are handed over as data, so nothing about the
+ * page's policy has to change to draw them.
+ *
+ * Summaries change rarely and are small, so they are cached on disk for a month.
+ * A preview that had to wait for the network would arrive after the pointer had
+ * moved on.
+ *
+ * @param {string} url
+ */
+/**
+ * Where a conversation is kept, between runs.
+ *
+ * Not in the harness, which holds a session's turns in memory and loses them with
+ * the process, and not in the note, which is the *lesson* rather than the
+ * conversation that produced it. It goes beside the session notes in
+ * `Learn/Sessions/.live/`, which is already where this vault keeps per-session
+ * state — the tree skips dot-folders, so nothing here shows up as a note.
+ *
+ * It lives in the vault rather than in the application's own storage because it
+ * is part of the record, and the vault is the thing that is his.
+ */
+function conversationFile(paths, sessionId) {
+  const dir = join(paths.vault, 'Learn', 'Sessions', '.live', 'conversations')
+  return { dir, file: join(dir, `${String(sessionId).replace(/[^\w.-]/g, '_')}.json`) }
+}
+
+/** Saves one conversation: its turns, its question, and where it belongs. */
+ipcMain.handle('mimir:conversation-save', (_event, { sessionId, state, lessonPath }) => {
+  if (!sessionId || !state) return false
+  try {
+    const { dir, file } = conversationFile(resolvePaths(), sessionId)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      file,
+      JSON.stringify(
+        {
+          sessionId,
+          lessonPath: lessonPath ?? null,
+          at: Date.now(),
+          messages: state.messages ?? [],
+          board: state.board ?? null,
+          questionAt: state.questionAt ?? null,
+        },
+        null,
+        2,
+      ),
+    )
+    return true
+  } catch (error) {
+    note(`could not save the conversation: ${error.message}`)
+    return false
+  }
+})
+
+/**
+ * The most recent conversation, for reopening.
+ *
+ * Newest by its own timestamp rather than by the filesystem's, which a copy or a
+ * sync can rewrite.
+ */
+ipcMain.handle('mimir:conversation-load', () => {
+  const paths = resolvePaths()
+  const dir = join(paths.vault, 'Learn', 'Sessions', '.live', 'conversations')
+  let newest = null
+  try {
+    for (const entry of readdirSync(dir)) {
+      if (!entry.endsWith('.json')) continue
+      try {
+        const parsed = JSON.parse(readFileSync(join(dir, entry), 'utf8'))
+        if (!newest || (parsed.at ?? 0) > (newest.at ?? 0)) newest = parsed
+      } catch {
+        // A conversation that will not parse is one conversation lost.
+      }
+    }
+  } catch {
+    // No conversations yet, which is where every vault starts.
+  }
+  return newest
+})
+
+ipcMain.handle('mimir:preview', async (_event, url) => {
+  const target = String(url ?? '')
+  let title
+  try {
+    const parsed = new URL(target)
+    const match = /^\/(?:wiki|zh\/wiki)\/(.+)$/.exec(parsed.pathname)
+    // Only Wikipedia, and only an article. This is not a general-purpose fetcher,
+    // and it must not become one: it takes a URL from a page and reaches the
+    // internet with it.
+    if (!/(^|\.)wikipedia\.org$/.test(parsed.hostname) || !match) return null
+    title = decodeURIComponent(match[1]).replace(/_/g, ' ')
+  } catch {
+    return null
+  }
+
+  const paths = resolvePaths()
+  const cacheDir = join(paths.dshHome, 'previews')
+  const cacheFile = join(cacheDir, `${hashOf(title)}.json`)
+  const MONTH = 30 * 24 * 60 * 60 * 1000
+  try {
+    const cached = JSON.parse(readFileSync(cacheFile, 'utf8'))
+    if (Date.now() - (cached.at ?? 0) < MONTH) return cached.preview
+  } catch {
+    // Not cached yet, or the cache is unreadable. Either way, fetch.
+  }
+
+  try {
+    const response = await fetch(
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`,
+      {
+        headers: { accept: 'application/json', 'user-agent': 'Mimir/1.0 (learning vault)' },
+        signal: AbortSignal.timeout(8000),
+      },
+    )
+    if (!response.ok) return null
+    const body = await response.json()
+    const preview = {
+      title: body.title ?? title,
+      extract: body.extract ?? '',
+      description: body.description ?? '',
+      // A data URI, so the page draws it without being allowed to fetch it.
+      thumbnail: await inlineThumbnail(body.thumbnail?.source),
+      url: body.content_urls?.desktop?.page ?? target,
+    }
+    try {
+      mkdirSync(cacheDir, { recursive: true })
+      writeFileSync(cacheFile, JSON.stringify({ at: Date.now(), preview }))
+    } catch {
+      // A cache that will not write is a cache that is slower, not broken.
+    }
+    return preview
+  } catch {
+    // Offline, or Wikipedia is unreachable. A link without a preview is a link.
+    return null
+  }
+})
+
+/** A thumbnail as a data URI, so the page needs no permission to show it. */
+async function inlineThumbnail(source) {
+  if (!source) return null
+  try {
+    const response = await fetch(source, { signal: AbortSignal.timeout(6000) })
+    if (!response.ok) return null
+    const type = response.headers.get('content-type') ?? 'image/png'
+    if (!type.startsWith('image/')) return null
+    const buffer = Buffer.from(await response.arrayBuffer())
+    // A preview is a glance, not a picture: anything larger is not worth carrying
+    // through an IPC channel on mouseover.
+    if (buffer.length > 400_000) return null
+    return `data:${type};base64,${buffer.toString('base64')}`
+  } catch {
+    return null
+  }
+}
+
 ipcMain.handle('mimir:open-external', (_event, url) => shell.openExternal(String(url)))
 
 app.on('window-all-closed', () => {

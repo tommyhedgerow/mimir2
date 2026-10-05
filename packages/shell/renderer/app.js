@@ -174,6 +174,10 @@ function runs(parent, list) {
           event.preventDefault()
           api.openExternal(run.href)
         })
+        // Every proper noun in a note carries a Wikipedia link, by a standing
+        // rule of the method. A link you have to leave the lesson to follow is a
+        // link that interrupts it, so it says what it points at when hovered.
+        watchForPreview(a, run.href)
         parent.append(a)
         break
       }
@@ -618,7 +622,13 @@ async function showLesson(force = false) {
   // had been on screen became a null element, and the functions that used it
   // threw.
   const stamp = await api.docStamp(lessonPath)
-  if (!stamp) return
+  if (!stamp) {
+    // The saved note is gone — renamed, deleted, or the vault moved. Say so in
+    // the header rather than leaving it blank, and stop trying to draw it.
+    showLessonBar((lessonPath.split('/').pop() ?? '').replace(/\.md$/, '') || 'the lesson', 'not found', null)
+    lessonPath = null
+    return
+  }
   if (!force && stamp === lessonStamp && !browsing) return
   lessonStamp = stamp
   browsing = false
@@ -717,11 +727,6 @@ function setWorking(label) {
   workingEl.classList.toggle('working--on', Boolean(label))
 }
 
-/** The board, in the right pane. */
-const boardEl = document.getElementById('board')
-const lessonEmptyEl = document.getElementById('lesson-empty')
-const BOARD_STATE = { held: '●', learning: '◐', fragile: '◌', planned: '○' }
-
 /**
  * The lesson's own material, in the right pane.
  *
@@ -730,17 +735,33 @@ const BOARD_STATE = { held: '●', learning: '◐', fragile: '◌', planned: '�
  * thing here: an option is something to choose, and choosing it answers the
  * teacher — the learner should not have to retype an answer they can pick.
  */
+const mapEl = document.getElementById('map')
+const boardEl = document.getElementById('board')
+const lessonEmptyEl = document.getElementById('lesson-empty')
+const questionEmptyEl = document.getElementById('question-empty')
+const BOARD_STATE = { held: '●', learning: '◐', fragile: '◌', planned: '○' }
+
+/**
+ * The lesson's own material, in the right pane, under two headings.
+ *
+ * The spine is the map of what the learner holds; the question is what is being
+ * asked of them. They arrive together but they are not the same kind of thing —
+ * one is a picture to consult, the other is a prompt to answer — so they are tabs
+ * rather than one column, and answering happens on the tab the question is on.
+ */
 function drawBoard(board) {
-  if (!boardEl) return
-  boardEl.textContent = ''
+  if (!mapEl || !boardEl) return
 
-  const hasSomething =
-    (board?.spine ?? []).length || board?.question || (board?.drawings ?? []).length
-  if (lessonEmptyEl) lessonEmptyEl.hidden = Boolean(hasSomething)
-  boardEl.hidden = !hasSomething
-  if (!hasSomething) return
+  const spine = board?.spine ?? []
+  const drawings = board?.drawings ?? []
+  const hasMap = spine.length > 0 || drawings.length > 0
+  const hasQuestion = Boolean(board?.question)
 
-  for (const node of board.spine ?? []) {
+  mapEl.textContent = ''
+  mapEl.hidden = !hasMap
+  if (lessonEmptyEl) lessonEmptyEl.hidden = hasMap
+
+  for (const node of spine) {
     const state = node.state || 'planned'
     const row = document.createElement('div')
     row.className = `board__node board__node--${state}`
@@ -751,43 +772,46 @@ function drawBoard(board) {
     label.className = 'board__label'
     label.textContent = node.node || ''
     row.append(glyph, label)
-    boardEl.append(row)
+    mapEl.append(row)
   }
 
-  for (const drawing of board.drawings ?? []) {
+  for (const drawing of drawings) {
     if (drawing.missing || !drawing.svg) {
       const note = document.createElement('p')
       note.className = 'board__missing'
       note.textContent = `${drawing.name || 'a drawing'} — not shown`
-      boardEl.append(note)
+      mapEl.append(note)
       continue
     }
     const figure = document.createElement('figure')
     figure.className = 'board__drawing'
     figure.innerHTML = drawing.svg
-    boardEl.append(figure)
+    mapEl.append(figure)
   }
 
-  if (board.question) {
-    const q = document.createElement('p')
-    q.className = 'board__question'
-    q.textContent = board.question
-    boardEl.append(q)
+  boardEl.textContent = ''
+  boardEl.hidden = !hasQuestion
+  if (questionEmptyEl) questionEmptyEl.hidden = hasQuestion
+  if (!hasQuestion) return
 
-    for (const option of board.options ?? []) {
-      const o = document.createElement('button')
-      o.type = 'button'
-      o.className = 'board__option'
-      o.textContent = option
-      o.addEventListener('click', () => {
-        if (busy) return
-        for (const other of boardEl.querySelectorAll('.board__option')) {
-          other.classList.toggle('board__option--chosen', other === o)
-        }
-        answerWith(option)
-      })
-      boardEl.append(o)
-    }
+  const q = document.createElement('p')
+  q.className = 'board__question'
+  q.textContent = board.question
+  boardEl.append(q)
+
+  for (const option of board.options ?? []) {
+    const o = document.createElement('button')
+    o.type = 'button'
+    o.className = 'board__option'
+    o.textContent = option
+    o.addEventListener('click', () => {
+      if (busy) return
+      for (const other of boardEl.querySelectorAll('.board__option')) {
+        other.classList.toggle('board__option--chosen', other === o)
+      }
+      answerWith(option)
+    })
+    boardEl.append(o)
   }
 
   if (board.hint) {
@@ -797,6 +821,38 @@ function drawBoard(board) {
     boardEl.append(h)
   }
 }
+
+/**
+ * The right pane's own tabs.
+ *
+ * The map is what a learner consults; the questions are what they answer. Which
+ * is open is remembered, because a lesson has a habit of being about one of them
+ * at a time.
+ */
+const PANE_TAB_KEY = 'mimir.lessonPaneTab'
+
+function showPaneTab(which) {
+  const target = which === 'questions' ? 'questions' : 'map'
+  const panels = {
+    map: document.getElementById('panel-map'),
+    questions: document.getElementById('panel-questions'),
+  }
+  const buttons = {
+    map: document.getElementById('tab-map'),
+    questions: document.getElementById('tab-questions'),
+  }
+  for (const [name, panel] of Object.entries(panels)) if (panel) panel.hidden = name !== target
+  for (const [name, button] of Object.entries(buttons)) {
+    if (!button) continue
+    button.classList.toggle('tab--on', name === target)
+    button.setAttribute('aria-selected', String(name === target))
+  }
+  localStorage.setItem(PANE_TAB_KEY, target)
+}
+
+document.getElementById('tab-map')?.addEventListener('click', () => showPaneTab('map'))
+document.getElementById('tab-questions')?.addEventListener('click', () => showPaneTab('questions'))
+showPaneTab(localStorage.getItem(PANE_TAB_KEY) || 'map')
 
 api.onEvent((event) => {
   if (event.sessionId !== sessionId) return
@@ -964,6 +1020,8 @@ sizeEl.addEventListener('click', () => {
  */
 freshEl.addEventListener('click', async () => {
   nextSession()
+  restoredMessages = []
+  restoredQuestion = null
   // The pane is redrawn from the session, so starting one is only a matter of
   // naming a new one and asking again — there is no transcript to clear by hand.
   lastMessageCount = -1
@@ -984,8 +1042,12 @@ async function start() {
     whereEl.title = `${status.vaultPath} — click to open the folder`
     whereEl.addEventListener('click', () => api.openVault?.())
   }
+  // The last conversation, so the window opens on what was being read rather
+  // than on an empty pane.
+  const reopened = await restoreConversation()
   // The conversation first, because that is the surface the centre opens on.
   await refresh()
+  if (reopened) showTab('conversation')
   showTab(localStorage.getItem(TAB_KEY) || 'conversation')
   await loadVault()
   watchLesson()
@@ -1215,6 +1277,16 @@ function renderConversation(state) {
     return
   }
 
+  // Labelled while it *is* the reopened one. The turns are the same turns either
+  // way, so the difference is only which session they came from — and once a
+  // turn has been sent the conversation is this run's, not the last one's.
+  if (state?.restored) {
+    const note = document.createElement('p')
+    note.className = 'turn__restored'
+    note.textContent = 'Earlier conversation, reopened. What follows continues it.'
+    streamEl.append(note)
+  }
+
   let placed = false
   for (const message of messages) {
     if (!placed && questionAt && (message.at ?? 0) > questionAt) {
@@ -1264,6 +1336,29 @@ function questionCard(board) {
  * only redrawn when it is the tab being looked at.
  */
 let lastMessageCount = -1
+
+/**
+ * The conversation as it is shown: what was restored, then what this run has.
+ *
+ * The runtime cannot resume a session — it holds a session's turns in memory and
+ * refuses an id it has already seen — so a reopened conversation is the record of
+ * the last one and a fresh session in front of it. That is honest: the turns are
+ * the same turns, and the teacher continues from the note, which is where the
+ * teaching was written down.
+ */
+let restoredMessages = []
+let restoredQuestion = null
+
+function displayState(session) {
+  const messages = [...restoredMessages, ...(session?.messages ?? [])]
+  return {
+    messages,
+    board: session?.board ?? restoredQuestion,
+    questionAt: session?.questionAt ?? null,
+    restored: restoredMessages.length > 0,
+  }
+}
+
 async function refresh() {
   let state = null
   try {
@@ -1271,12 +1366,157 @@ async function refresh() {
   } catch {
     return
   }
-  const count = state?.messages?.length ?? 0
+  const count = (state?.messages?.length ?? 0) + restoredMessages.length
   if (count !== lastMessageCount) {
     lastMessageCount = count
-    renderConversation(state)
+    renderConversation(displayState(state))
   }
   if (state?.board) drawBoard(state.board)
 
   if (panels.note && !panels.note.hidden) await showLesson()
+
+  // Saved after every change, so closing the window is not a decision anybody
+  // has to make in advance.
+  api.saveConversation?.(sessionId, displayState(state), lessonPath).catch(() => {})
+}
+
+/**
+ * Reopens the last conversation.
+ *
+ * It is shown rather than silently restored, because a conversation from an
+ * earlier sitting is a different thing from one that is happening now, and the
+ * learner should be able to tell which they are reading.
+ */
+async function restoreConversation() {
+  try {
+    const saved = await api.loadConversation?.()
+    if (!saved?.messages?.length) return false
+    restoredMessages = saved.messages
+    restoredQuestion = saved.board ?? null
+    lastMessageCount = -1
+    // The note the lesson belongs to, so the centre opens where it left off.
+    if (saved.lessonPath) lessonPath = saved.lessonPath
+    return true
+  } catch {
+    return false
+  }
+}
+
+/* ---------------------------------------------------------- link previews
+ *
+ * A Wikipedia link, saying what it points at before it is followed.
+ *
+ * The summary is fetched by the shell and handed here as plain data — the page
+ * has no network of its own, and giving it one to draw a hover card would be a
+ * poor trade. The thumbnail arrives as a data URI for the same reason, so
+ * nothing in the page's policy has to be relaxed.
+ *
+ * The card is one element, moved and refilled, rather than one per link: a note
+ * can carry thirty links and thirty hidden cards would be thirty pieces of DOM
+ * that nothing is looking at.
+ */
+const PREVIEW_DELAY = 380
+let previewCard = null
+let previewTimer = null
+/** Kept, so a summary is asked for once per URL and not once per hover. */
+const previewCache = new Map()
+
+function previewEl() {
+  if (previewCard) return previewCard
+  previewCard = document.createElement('aside')
+  previewCard.className = 'preview'
+  previewCard.hidden = true
+  document.body.append(previewCard)
+  return previewCard
+}
+
+/**
+ * Watching for the pointer, by delegation.
+ *
+ * A listener per link was the first attempt and it did not work: the handlers
+ * were attached as the markdown was drawn, so any link that arrived another way —
+ * a turn redrawn, a note re-rendered, anything appended — had none, and hovering
+ * it did nothing. Delegation is one listener for the whole page and cannot miss
+ * a link, whenever it appeared.
+ */
+document.addEventListener('mouseover', (event) => {
+  const anchor = event.target?.closest?.('a[href]')
+  if (!anchor) return
+  clearTimeout(previewTimer)
+  // Delayed, so running the pointer across a line of links does not fire a dozen
+  // fetches and flash a dozen cards.
+  previewTimer = setTimeout(() => showPreview(anchor, anchor.href), PREVIEW_DELAY)
+})
+
+document.addEventListener('mouseout', (event) => {
+  if (!event.target?.closest?.('a[href]')) return
+  clearTimeout(previewTimer)
+  hidePreview()
+})
+
+document.addEventListener('click', (event) => {
+  if (event.target?.closest?.('a[href]')) hidePreview()
+})
+
+/** Kept for the call site in the markdown renderer; the watching is delegated. */
+function watchForPreview() {}
+
+function hidePreview() {
+  if (previewCard) previewCard.hidden = true
+}
+
+async function showPreview(anchor, href) {
+  let preview = previewCache.get(href)
+  if (preview === undefined) {
+    previewCache.set(href, null) // in flight; do not ask twice
+    try {
+      preview = await api.preview(href)
+    } catch {
+      preview = null
+    }
+    previewCache.set(href, preview)
+  }
+  if (!preview) return
+
+  const card = previewEl()
+  card.textContent = ''
+
+  if (preview.thumbnail) {
+    const img = document.createElement('img')
+    img.className = 'preview__thumb'
+    img.src = preview.thumbnail
+    img.alt = ''
+    card.append(img)
+  }
+
+  const text = document.createElement('div')
+  text.className = 'preview__text'
+  const title = document.createElement('p')
+  title.className = 'preview__title'
+  title.textContent = preview.title
+  text.append(title)
+  if (preview.description) {
+    const kinds = document.createElement('p')
+    kinds.className = 'preview__kind'
+    kinds.textContent = preview.description
+    text.append(kinds)
+  }
+  const extract = document.createElement('p')
+  extract.className = 'preview__extract'
+  extract.textContent = preview.extract.split(/\n/)[0].slice(0, 320)
+  text.append(extract)
+  card.append(text)
+
+  // Beside the link, and inside the window.
+  card.hidden = false
+  const box = anchor.getBoundingClientRect()
+  const cardBox = card.getBoundingClientRect()
+  const margin = 10
+  let left = Math.min(box.left, window.innerWidth - cardBox.width - margin)
+  let top = box.bottom + 6
+  if (top + cardBox.height > window.innerHeight - margin) {
+    top = Math.max(margin, box.top - cardBox.height - 6)
+  }
+  card.style.left = `${Math.max(margin, left)}px`
+  card.style.top = `${top}px`
 }

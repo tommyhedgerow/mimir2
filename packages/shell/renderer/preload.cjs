@@ -46,6 +46,16 @@ contextBridge.exposeInMainWorld('mimir', {
 
   openExternal: (url) => ipcRenderer.invoke('mimir:open-external', url),
 
+  /** Saves the conversation so it can be reread after the window closes. */
+  saveConversation: (sessionId, state, lessonPath) =>
+    ipcRenderer.invoke('mimir:conversation-save', { sessionId, state, lessonPath }),
+
+  /** The most recent conversation, or null if there is not one. */
+  loadConversation: () => ipcRenderer.invoke('mimir:conversation-load'),
+
+  /** A Wikipedia article's own summary of itself, for a link's hover card. */
+  preview: (url) => ipcRenderer.invoke('mimir:preview', url),
+
   /** Show the vault in the Finder. */
   openVault: () => ipcRenderer.invoke('mimir:open-vault'),
 })
