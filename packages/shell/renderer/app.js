@@ -441,12 +441,12 @@ function findLesson(documents) {
  * format invented here.
  */
 const PHASES = [
-  { mark: '🎯', label: 'goal' },
-  { mark: '🔍', label: 'probe' },
-  { mark: '🗺️', label: 'plan' },
-  { mark: '🧠', label: 'teaching' },
-  { mark: '✓', label: 'checks' },
-  { mark: '📚', label: 'reading' },
+  { names: ['goal'], glyph: '◇', label: 'goal' },
+  { names: ['probe'], glyph: '◈', label: 'probe' },
+  { names: ['plan'], glyph: '⌘', label: 'plan' },
+  { names: ['nodes', 'teaching'], glyph: '◉', label: 'teaching' },
+  { names: ['checks'], glyph: '✓', label: 'checks' },
+  { names: ['reading', 'sources'], glyph: '❧', label: 'reading' },
 ]
 
 /**
@@ -547,25 +547,31 @@ function sectionsOf(markdown) {
 
 function phasesIn(markdown) {
   const sections = sectionsOf(markdown)
-  // Matched against headings only. Asking whether the markdown contains the
-  // character `✅` finds the tick inside a probe table's `✓/✗` column and the
-  // link beside "None yet" — so a phase read as both reached and not reached at
-  // once, which is what "phase--done phase--todo" on the same item meant.
-  const markers = {
-    goal: ['🎯'],
-    probe: ['🔍'],
-    plan: ['🗺️', '🗺'],
-    // The teaching is the nodes, under whatever heading the lesson needs.
-    teaching: ['📍', '🧠'],
-    checks: ['✅', '✔️', '✓'],
-    reading: ['📚', '🔗'],
-  }
-
   return PHASES.map((phase) => {
-    const marks = markers[phase.label] ?? []
-    const mine = sections.filter((section) => marks.some((mark) => section.heading.includes(mark)))
-    return { ...phase, present: mine.some((section) => section.written) }
+    // A phase is recognised by its **name**, not by a decoration. It used to be
+    // recognised by an emoji the template happened to carry, which meant the
+    // marker had to be present for the phase to be seen at all — and put emoji in
+    // every heading of every note to satisfy a reader. A heading that says
+    // "Probe" is a probe however it is written: `## Probe`, `## 🔍 Probe`,
+    // `### the probe`.
+    const mine = sections.filter((section) =>
+      phase.names.some((name) => new RegExp(`(^|[^a-z])${name}([^a-z]|$)`, 'i').test(section.heading)),
+    )
+    return {
+      ...phase,
+      // What to draw for it, preferring the glyph the section actually carries so
+      // a note that names its own marker keeps it.
+      mark: glyphOf(mine[0]?.heading) ?? phase.glyph,
+      present: mine.some((section) => section.written),
+    }
   })
+}
+
+/** The leading decoration of a heading, if it has one. */
+function glyphOf(heading) {
+  if (!heading) return null
+  const match = /^([^\p{L}\p{N}\s]+)\s/u.exec(heading.trim())
+  return match ? match[1] : null
 }
 
 /**

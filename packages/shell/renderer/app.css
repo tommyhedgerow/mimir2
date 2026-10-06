@@ -26,6 +26,9 @@
   --mark: #2f7d63;
   --mark-soft: #d9f0e4;
   --peach: #2f7d63;
+  /* The only red in the window, and it means one thing: this cannot be undone. */
+  --danger: #b3261e;
+  --danger-soft: #fbeae8;
 
   --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -231,6 +234,8 @@ body {
   --mark: #8fd6a4;
   --mark-soft: #1e3830;
   --peach: #8fd6a4;
+  --danger: #ff6b6b;
+  --danger-soft: #3a1d1d;
 }
 
 /* Stated last so it overrules a system dark preference. */
@@ -1877,11 +1882,16 @@ body.resizing .teacher {
 
 .settings__danger {
   border-top: 1px solid var(--line);
-  background: color-mix(in srgb, var(--peach) 7%, transparent);
+  background: var(--danger-soft);
 }
 
 .settings__danger .settings__what {
-  color: var(--peach);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.settings__danger .settings__why {
+  color: color-mix(in srgb, var(--danger) 70%, var(--ink-3));
 }
 
 .settings__confirm {
@@ -1911,27 +1921,32 @@ body.resizing .teacher {
 }
 
 .settings__confirm input:focus {
-  border-color: var(--peach);
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
 }
 
+/* Filled with red, because a control that deletes everything should look like
+   one before it is pressed rather than after. Disabled until the word is typed,
+   and hollow while it is, so the armed state is unmistakable. */
 .settings__go {
   margin-left: auto;
   padding: 5px 11px;
-  border: 1px solid var(--peach);
+  border: 1px solid var(--danger);
   border-radius: 4px;
-  background: var(--peach);
-  color: var(--paper);
+  background: var(--danger);
+  color: #ffffff;
   font-family: var(--mono);
   font-size: 10px;
+  font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
 }
 
 .settings__go:disabled {
-  border-color: var(--line);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
   background: transparent;
-  color: var(--ink-3);
+  color: color-mix(in srgb, var(--danger) 70%, transparent);
   cursor: default;
 }
 

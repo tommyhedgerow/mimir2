@@ -232,7 +232,7 @@ function seedVault(vaultPath) {
   // Nothing here is overwritten. Each file is written only if it is absent, so a
   // learner's own writing is never touched.
   const files = {
-    'Learn/🌱 Learn Index.md': `---
+    'Learn/Learn Index.md': `---
 type: index
 tags: [learn]
 ---

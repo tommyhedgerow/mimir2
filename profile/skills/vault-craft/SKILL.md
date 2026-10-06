@@ -32,7 +32,7 @@ It is not the **library**. Finished, polished notes are published into the Yggdr
 
 ```
 Learn/
-  🌱 Learn Index.md      the hub: what is here, what is in flight
+  Learn Index.md         the hub: what is here, what is in flight
   How We Learn.md        the human-readable charter of the method
   Learner Profile.md     running state: what he holds, where his edges are
   Backlog.md             what he wants to learn, ordered
@@ -205,7 +205,7 @@ In order:
 4. **`Learner Profile.md`**: confirmed floors (what he got right and now owns), found ceilings (where it ran out), misconceptions found and whether they were dislodged, and his preferences as they became visible (wants more Socratic, dislikes long preambles, prefers a diagram early, and so on).
 5. **`Backlog.md`**: tick what is done, add what the session revealed as newly interesting, and note what the session made obvious is needed next.
 6. **`Review Queue.md`**: one entry per concept taught, with its first due date — and **on a review session, append the outcome to the concept note's `retrievals:` before rescheduling it.** The queue line is the promise; `retrievals:` is the only record that the promise was kept, and it is what the dashboard reads. An outcome written only in prose is an outcome nothing can count later.
-7. **`Learn/../🌱 Learn Index.md`**: add the session to the recent list and the new maps to the map list.
+7. **`Learn/../Learn Index.md`**: add the session to the recent list and the new maps to the map list.
 8. Optional but valuable: one line in the day's daily note in his own vault pointing at the session — only if he keeps one and asks for it.
 
 A `subagent_librarian` call is the right way to do steps 2, 3, 6 and 7 when there is real filing to do; write the session note and the profile yourself, since those carry your judgement of the session.
