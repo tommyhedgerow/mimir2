@@ -91,6 +91,30 @@ be given to anyone; that is the one thing no build can invent. Windows does not
 have that wall — an unsigned installer is a SmartScreen warning rather than a
 refusal — so it can be shipped first and signed later.
 
+### Using an unsigned build yourself
+
+An unsigned Mimir runs on the machine that built it and **nowhere else**. Two things
+make that true, and both cost an afternoon to rediscover:
+
+  * macOS 26 refuses an ad-hoc-signed GUI application outright, so the app cannot be
+    launched from Finder by right-clicking and choosing Open. The usual advice does
+    not apply.
+  * `com.apple.quarantine` is set on anything copied from a disk image, and an
+    unsigned bundle carrying it is the "Mimir is damaged and can't be opened" dialog
+    — which is not damage.
+
+So a local build is launched through a wrapper that strips the attribute and starts
+the binary detached, so it survives the terminal that started it:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Mimir.app
+nohup /Applications/Mimir.app/Contents/MacOS/Mimir > ~/Library/Logs/Mimir.log 2>&1 &
+```
+
+`Mimir.command` on the Desktop does exactly this, and logs to
+`~/Library/Logs/Mimir.log`. When there is a Developer ID, all of it goes away: a
+signed and notarized build opens on any Mac with a double-click.
+
 `--stage-only` stops after vendoring, which is what you want when you are only
 checking that the resources are where the shell expects them.
 
