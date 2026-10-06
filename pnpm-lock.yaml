@@ -16,6 +16,8 @@ importers:
 
   packages/markdown: {}
 
+  packages/mimir-skin: {}
+
   packages/shell:
     devDependencies:
       electron:
