@@ -103,6 +103,29 @@ module.exports = {
     ],
   },
 
+  // Windows. There is no signing here, and that is a deliberate difference from
+  // the Mac: an unsigned Windows installer is a SmartScreen warning rather than
+  // a wall, so the build is usable today and can be signed when there is a
+  // certificate to sign it with. The Mac cannot make that trade, which is why
+  // `notarize` above is the one thing blocking a distributable Mac build.
+  win: {
+    icon: 'build/icon.ico',
+    target: [
+      { target: 'nsis', arch: ['x64'] },
+      { target: 'zip', arch: ['x64'] },
+    ],
+  },
+
+  nsis: {
+    // Per-user by default, so installing needs no administrator and the app can
+    // be removed from the same place it was installed.
+    oneClick: false,
+    perMachine: false,
+    allowToChangeInstallationDirectory: true,
+    createDesktopShortcut: true,
+    shortcutName: 'Mimir',
+  },
+
   linux: {
     category: 'Education',
     icon: 'build/icon.png',

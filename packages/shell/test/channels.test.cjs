@@ -414,3 +414,33 @@ test('the credential writer quotes exactly once', () => {
     'the secret is written without a single round of quoting',
   )
 })
+
+
+test('the build and the shell know where each platform keeps the kernel', () => {
+  // The kernel is a native binary, so a build carries the one for its own
+  // platform. Three places assumed macOS, and each would have failed silently on
+  // Windows rather than loudly:
+  //
+  //   findKernel()          looked only for the macOS path and name
+  //   after-pack.cjs        computed a `.app` path that does not exist there
+  //   the bundle check      hardcoded dist/app/mac-arm64
+  const main = readFileSync(join(__dirname, '..', 'main.cjs'), 'utf8')
+  const kernel = main.slice(main.indexOf('function findKernel'))
+  assert.match(kernel, /SiYuan-Kernel\.exe/, 'the Windows kernel name is never looked for')
+  assert.match(kernel, /'resources', 'kernel'/, "the non-macOS resources layout is never looked at")
+
+  const afterPack = readFileSync(join(__dirname, '..', 'build', 'after-pack.cjs'), 'utf8')
+  assert.match(afterPack, /electronPlatformName === 'darwin'/, 'afterPack does not branch on platform')
+  assert.match(afterPack, /join\(appDir, 'resources'\)/, 'afterPack does not know the non-macOS layout')
+
+  const script = readFileSync(join(__dirname, '..', '..', '..', 'scripts', 'build-app.sh'), 'utf8')
+  assert.match(script, /MIMIR_TARGET/, 'the build cannot be told which platform to build for')
+  assert.match(script, /KERNEL_REL=/, 'the build does not vary the kernel path by platform')
+  // The bundle check must select its path per target. Asserting that a case
+  // exists for each is the check; asserting a string is absent after deleting it
+  // would be no check at all, which the first version of this test did.
+  const bundleCheck = script.slice(script.indexOf('case "$TARGET" in', script.indexOf('Verify the BUNDLE')))
+  for (const expected of ['mac-arm64/Mimir.app', 'win-unpacked/Mimir.exe', 'linux-unpacked/mimir']) {
+    assert.ok(bundleCheck.includes(expected), `the bundle check has no path for ${expected}`)
+  }
+})

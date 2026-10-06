@@ -20,9 +20,28 @@ const { join, dirname } = require('node:path')
 /** @param {import('electron-builder').AfterPackContext} context */
 exports.default = async function afterPack(context) {
   const appDir = context.appOutDir
-  const bundle = join(appDir, `${context.packager.appInfo.productFilename}.app`)
   const source = join(context.packager.projectDir, '..', '..', 'profile', 'node_modules')
-  const target = join(bundle, 'Contents', 'Resources', 'app', 'profile', 'node_modules')
+
+  // Where the resources live depends on the platform, and this only knew the
+  // macOS shape:
+  //
+  //   macOS    <out>/Mimir.app/Contents/Resources
+  //   Windows  <out>/resources
+  //   Linux    <out>/resources
+  //
+  // On Windows this computed a `.app` path that does not exist, so the harness
+  // tree was copied nowhere and the application would have launched unable to
+  // resolve its own runtime — the silent failure this hook exists to prevent,
+  // reintroduced by the hook itself.
+  const resources =
+    context.electronPlatformName === 'darwin'
+      ? join(appDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
+      : join(appDir, 'resources')
+  const target = join(resources, 'app', 'profile', 'node_modules')
+
+  if (context.electronPlatformName !== 'darwin' && !existsSync(resources)) {
+    throw new Error(`no resources directory at ${resources} — the layout is not what this expects`)
+  }
 
   if (!existsSync(source)) {
     throw new Error(

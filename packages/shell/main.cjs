@@ -141,10 +141,26 @@ function resolvePaths() {
  * that working on the app does not require vendoring 260 MB.
  */
 function findKernel() {
+  // The binary's name and its place in the distribution differ by platform, and
+  // the vendored copy keeps the shape of the distribution it came from:
+  //
+  //   macOS    siyuan/Contents/Resources/kernel/SiYuan-Kernel
+  //   Windows  siyuan/resources/kernel/SiYuan-Kernel.exe
+  //   Linux    siyuan/resources/kernel/SiYuan-Kernel
+  //
+  // Only the first was here, so a Windows or Linux build would have started,
+  // found nothing, and said "no SiYuan kernel found" — with the kernel sitting
+  // right there under a path nobody looked at.
+  const exe = process.platform === 'win32' ? 'SiYuan-Kernel.exe' : 'SiYuan-Kernel'
   const candidates = [
-    join(resourcesRoot(), 'siyuan', 'Contents', 'Resources', 'kernel', 'SiYuan-Kernel'),
-    join(resourcesRoot(), 'siyuan', 'SiYuan-Kernel'),
-    '/Applications/SiYuan.app/Contents/Resources/kernel/SiYuan-Kernel',
+    // A packaged build, in the layout its own platform uses.
+    join(resourcesRoot(), 'siyuan', 'Contents', 'Resources', 'kernel', exe),
+    join(resourcesRoot(), 'siyuan', 'resources', 'kernel', exe),
+    join(resourcesRoot(), 'siyuan', exe),
+    // Whatever SiYuan is installed on this machine, for development.
+    `/Applications/SiYuan.app/Contents/Resources/kernel/${exe}`,
+    join(process.env.LOCALAPPDATA ?? '', 'Programs', 'SiYuan', 'resources', 'kernel', exe),
+    '/opt/SiYuan/resources/kernel/SiYuan-Kernel',
     '/opt/homebrew/bin/siyuan',
     '/usr/local/bin/siyuan',
   ]

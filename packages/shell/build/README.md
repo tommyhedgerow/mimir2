@@ -7,12 +7,61 @@ packaged, and signing needs a certificate that no build can invent.
 ## Build
 
 ```sh
-node app/scripts/build-app.mjs          # or: bash app/scripts/build-app.sh
+bash app/scripts/build-app.sh              # for the machine you are on
+MIMIR_TARGET=win bash app/scripts/build-app.sh   # stage a Windows build
 ```
 
 That does three things: installs the harness profile if it is not installed,
-vendors `/Applications/SiYuan.app` into `app/packages/shell/vendor/siyuan`, and
-runs electron-builder. Output lands in `dist/app/`.
+vendors SiYuan into `app/packages/shell/vendor/siyuan`, and runs electron-builder.
+Output lands in `dist/app/`.
+
+## Building for another platform
+
+The kernel is a **native binary**, so a build carries the one for its own platform
+and no other. The build script detects the host and can be told otherwise with
+`MIMIR_TARGET=mac|win|linux`, which is what makes cross-platform work possible
+from one machine.
+
+| Platform | Kernel in the distribution | Vendored to |
+| --- | --- | --- |
+| macOS | `SiYuan.app/Contents/Resources/kernel/SiYuan-Kernel` | `vendor/siyuan/Contents/Resources/kernel/` |
+| Windows | `resources/kernel/SiYuan-Kernel.exe` | `vendor/siyuan/resources/kernel/` |
+| Linux | `resources/kernel/SiYuan-Kernel` | `vendor/siyuan/resources/kernel/` |
+
+On macOS the build copies an installed SiYuan, which is fast and needs no network.
+For any other target there is nothing local to copy, so the published release is
+fetched — a quarter of a gigabyte, cached under `app/.cache/` so a second build
+does not fetch it twice. `SIYUAN_VERSION` chooses the release.
+
+The three things that assumed macOS and now do not:
+
+  * **`findKernel()`** looked only for the macOS path and the name without `.exe`.
+    A Windows build would have started, found nothing, and said "no SiYuan kernel
+    found" with the kernel sitting at a path nobody looked at.
+  * **`build/after-pack.cjs`** computed a `.app` bundle path and
+    `Contents/Resources`. On Windows that path does not exist, so the harness
+    dependency tree would have been copied nowhere — the application would have
+    launched and been unable to resolve its own runtime, which is the exact silent
+    failure that hook was written to prevent.
+  * **the bundle check** hardcoded `dist/app/mac-arm64/Mimir.app`. It now checks
+    the paths its target actually produces, because a Mac-shaped check run against
+    a Windows build reports every resource missing.
+
+## What is verified, and what is not
+
+**Verified:** the macOS build, end to end — vendoring, packaging, the bundle check,
+and the packaged application answering a question.
+
+**Not verified:** anything Windows or Linux has *run*. The layout was checked
+against the published Linux archive (`resources/kernel/SiYuan-Kernel` is in it, as
+expected), the code paths are platform-aware, and the Windows icon and installer
+configuration are in place. But a build that has never been launched is a build
+that has not been tested, and this is written down rather than implied.
+
+**Signing:** the Mac needs a Developer ID certificate and notarization before it can
+be given to anyone; that is the one thing no build can invent. Windows does not
+have that wall — an unsigned installer is a SmartScreen warning rather than a
+refusal — so it can be shipped first and signed later.
 
 `--stage-only` stops after vendoring, which is what you want when you are only
 checking that the resources are where the shell expects them.
