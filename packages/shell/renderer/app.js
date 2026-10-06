@@ -708,6 +708,7 @@ async function openDocument(docPath, title) {
 
   readerEl.append(article)
   readerEl.scrollTop = 0
+  noteTabWatch?.()
 
   if (browsing && lessonPath) {
     document.getElementById('invocation').hidden = true
@@ -1065,6 +1066,7 @@ async function start() {
   showTab(localStorage.getItem(TAB_KEY) || 'conversation')
   await loadVault()
   watchLesson()
+  watchNoteTab()
   autosize()
   inputEl.focus()
 }
@@ -1252,9 +1254,10 @@ const tabButtons = {
 }
 
 function showTab(which) {
-  // The agents tab only exists once there are agents, so a remembered choice of
-  // it must not leave every panel hidden.
-  const usable = (name) => panels[name] && !panels[name].dataset.disabled
+  // A tab is only usable when there is something behind it. The note tab exists
+  // before there is a note, and selecting it showed an empty pane that looked
+  // like the application had come apart — which is what was reported.
+  const usable = (name) => Boolean(panels[name]) && !panels[name].dataset.empty
   const target = usable(which) ? which : 'conversation'
   for (const [name, panel] of Object.entries(panels)) {
     if (panel) panel.hidden = name !== target
@@ -1600,7 +1603,11 @@ function renderAgents(list) {
   // The tab appears when there is something to see, and says how many.
   const any = agents.length > 0
   if (agentsTab) agentsTab.hidden = !any
-  if (panels.agents) panels.agents.dataset.disabled = any ? '' : '1'
+  // Hidden and marked empty, so `showTab` will not land on it either.
+  if (panels.agents) {
+    if (any) delete panels.agents.dataset.empty
+    else panels.agents.dataset.empty = '1'
+  }
   if (agentsCount) agentsCount.textContent = any ? String(agents.length) : ''
   if (!any) {
     if (agentsEl) agentsEl.hidden = true
@@ -2060,3 +2067,45 @@ async function tell(text) {
   streamEl.append(article)
   streamEl.scrollTop = streamEl.scrollHeight
 }
+
+/* ----------------------------------------------------------- empty surfaces
+ *
+ * A tab that leads nowhere should not be offered. The note tab exists from the
+ * first run and stays until the teacher writes a session note; selecting it
+ * before that showed a blank pane, which reads as the application having come
+ * apart rather than as a note not yet written.
+ *
+ * A disabled tab says which of the two it is: the tab is there, greyed, and a
+ * tooltip says what will fill it.
+ */
+function watchNoteTab() {
+  const tab = tabButtons.note
+  const panel = panels.note
+  if (!tab || !panel) return
+
+  const update = () => {
+    const hasNote = Boolean(readerEl && readerEl.children.length)
+    if (hasNote) {
+      tab.disabled = false
+      tab.removeAttribute('aria-disabled')
+      tab.title = ''
+      delete panel.dataset.empty
+    } else {
+      tab.disabled = true
+      tab.setAttribute('aria-disabled', 'true')
+      tab.title = 'No lesson note yet. The teacher writes one as the lesson runs.'
+      panel.dataset.empty = '1'
+      // And if it was the pane being read, go back to the conversation.
+      if (!panel.hidden) showTab('conversation')
+    }
+  }
+
+  // Called whenever the pane is redrawn, and watched so a note that arrives
+  // while the tab is closed enables it without a poll.
+  new MutationObserver(update).observe(readerEl, { childList: true })
+  update()
+  noteTabWatch = update
+}
+
+/** Set by `watchNoteTab`; called after the reader is redrawn. */
+let noteTabWatch = null

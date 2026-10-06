@@ -655,34 +655,8 @@ body {
 
 /* ---------------------------------------------------------------- the composer */
 
-.teacher__composer {
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
-  padding: 12px 16px 18px;
-  border-top: 1px solid var(--rule);
-}
 
-.teacher__composer textarea {
-  flex: 1;
-  min-height: 38px;
-  max-height: 180px;
-  padding: 9px 11px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--serif);
-  font-size: 0.96em;
-  line-height: 1.5;
-  resize: none;
-  outline: none;
-}
 
-.teacher__composer textarea:focus {
-  border-color: var(--mark);
-  box-shadow: 0 0 0 3px var(--mark-soft);
-}
 
 .send {
   padding: 9px 16px;
@@ -729,19 +703,7 @@ body {
 
 /* A textarea draws a scrollbar the moment its content is one line too tall, and
    an unstyled one is a bright rectangle in a dark window. */
-.teacher__composer textarea {
-  scrollbar-width: thin;
-  overflow-y: auto;
-}
 
-.teacher__composer textarea::-webkit-scrollbar { width: 8px; }
-.teacher__composer textarea::-webkit-scrollbar-track { background: transparent; }
-.teacher__composer textarea::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 5px;
-  background-clip: content-box;
-  background-color: color-mix(in srgb, var(--ink-3) 30%, transparent);
-}
 
 /* Every pane is the same paper. The reader was pure black against two
    blue-greys, which read as three windows rather than one. */
@@ -803,7 +765,6 @@ body {
 
 /* Room at the right of the composer, and a send button that is a button rather
    than a white block in a dark window. */
-.teacher__composer { gap: 10px; padding-right: 20px; }
 
 .send {
   border-color: color-mix(in srgb, var(--mark) 55%, transparent);
@@ -817,12 +778,7 @@ body {
 }
 
 
-.teacher__composer textarea {
-  overflow: hidden;
-  scrollbar-width: none;
-}
 
-.teacher__composer textarea::-webkit-scrollbar { display: none; }
 
 /* The chip sits beside the wordmark without repeating it: it names the vault,
    which is information, and the wordmark names the application. */
@@ -1264,8 +1220,17 @@ body.resizing .teacher {
 }
 
 .panel {
+  /* Fill the space rather than sitting in the middle of it: a grid row of `1fr`
+     with content smaller than the row leaves the content at the top only if the
+     item is told to stretch, and the note pane is full of short documents. */
+  height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+/* The centre's panels are grid items in one row; only one is ever shown. */
+.panel[hidden] {
+  display: none;
 }
 
 .panel--conversation {
@@ -1382,6 +1347,14 @@ body.resizing .teacher {
 .panel--note {
   overflow-y: auto;
   padding: 26px 40px 80px;
+}
+
+/* The note's own head and phase rail only take space when they have something in
+   them. An empty `ol` and a hidden head still occupy their margins, which is how
+   a blank strip appeared above a note that had not been written yet. */
+.note-head[hidden],
+.phases:empty {
+  display: none;
 }
 
 .panel--note > * {
@@ -1960,4 +1933,18 @@ body.resizing .teacher {
 
 .turn--notice::before {
   background: var(--line);
+}
+
+/* A tab with nothing behind it. It stays visible, because a note will exist and
+   a tab that appears from nowhere is worse than one that is greyed; it cannot be
+   pressed, and its tooltip says what will fill it. */
+.tab:disabled,
+.tab[aria-disabled='true'] {
+  color: color-mix(in srgb, var(--ink-3) 55%, transparent);
+  cursor: default;
+}
+
+.tab:disabled:hover,
+.tab[aria-disabled='true']:hover {
+  color: color-mix(in srgb, var(--ink-3) 55%, transparent);
 }
