@@ -1052,6 +1052,12 @@ freshEl.addEventListener('click', async () => {
 async function start() {
   const status = await api.status()
   modelEl.textContent = status.bridge ? (status.model ?? 'ready') : 'no runtime'
+
+  // The rail follows the runtime. It is the only place the answering model is
+  // named, so it has to be right after a switch rather than after a reload.
+  api.onModel?.(({ model }) => {
+    if (model) modelEl.textContent = model
+  })
   if (status.vaultPath) {
     whereEl.textContent = status.vaultPath.replace(/^.*\//, '')
     whereEl.title = `${status.vaultPath} — click to open the folder`
@@ -2109,3 +2115,140 @@ function watchNoteTab() {
 
 /** Set by `watchNoteTab`; called after the reader is redrawn. */
 let noteTabWatch = null
+
+/* ------------------------------------------------------------------ the model
+ *
+ * Which model answers. The rail showed its name and looked like a control from
+ * the first build, and was not one: it was the bridge's own start-up line read
+ * back. It is a control now, because the choice is real — the runtime takes a
+ * provider and a model at start-up, so choosing is a restart of the bridge and
+ * nothing more.
+ */
+const modelsEl = document.getElementById('models')
+const modelsList = document.getElementById('models-list')
+const modelNote = document.getElementById('model-note')
+
+async function toggleModels() {
+  if (!modelsEl) return
+  const showing = !modelsEl.hidden
+  modelsEl.hidden = showing
+  if (!showing) await renderModels()
+}
+
+async function renderModels() {
+  if (!modelsList) return
+  modelsList.textContent = ''
+  let state = null
+  try {
+    state = await api.models?.()
+  } catch {
+    state = null
+  }
+  if (!state) return
+
+  for (const entry of state.available ?? []) {
+    const row = document.createElement('button')
+    row.type = 'button'
+    row.className = 'model'
+    const chosen =
+      state.chosen?.provider === entry.provider && state.chosen?.model === entry.model
+    if (chosen) row.classList.add('model--on')
+    // A model whose provider has no key cannot answer, so it is listed and not
+    // offered: choosing it would fail at the first question instead of here.
+    if (!entry.keyed) row.classList.add('model--unkeyed')
+
+    const what = document.createElement('span')
+    what.className = 'model__what'
+    what.textContent = entry.name || entry.model
+
+    const id = document.createElement('span')
+    id.className = 'model__id'
+    id.textContent = `${entry.provider}/${entry.model}`
+
+    row.append(what, id)
+    if (!entry.keyed) {
+      const needs = document.createElement('span')
+      needs.className = 'model__needs'
+      needs.textContent = 'no key'
+      row.append(needs)
+    }
+    if (entry.added) {
+      const drop = document.createElement('span')
+      drop.className = 'model__drop'
+      drop.textContent = '×'
+      drop.title = 'Forget this model'
+      drop.addEventListener('click', async (event) => {
+        event.stopPropagation()
+        await api.removeModel?.({ provider: entry.provider, model: entry.model })
+        await renderModels()
+      })
+      row.append(drop)
+    }
+
+    row.title = entry.keyed
+      ? entry.note ?? ''
+      : `No API key for ${entry.provider}. Add one before choosing it.`
+    row.addEventListener('click', async () => {
+      if (!entry.keyed) {
+        await say(`No API key is set for ${entry.provider}, so ${entry.model} cannot answer yet.`)
+        return
+      }
+      row.classList.add('model--busy')
+      const what = row.querySelector('.model__what')
+      const before = what.textContent
+      what.textContent = 'switching…'
+      const result = await api.chooseModel?.({ provider: entry.provider, model: entry.model })
+      what.textContent = before
+      if (result?.ok) {
+        modelsEl.hidden = true
+        // The runtime is restarting behind this; the conversation survives it.
+        await say(`Now answering as ${entry.name || entry.model}. The runtime has been restarted on it.`)
+      } else {
+        await say(`Could not switch: ${result?.reason ?? 'unknown reason'}`)
+      }
+      await renderModels()
+    })
+    modelsList.append(row)
+  }
+
+  if (modelNote) {
+    modelNote.textContent =
+      'A model needs an API key for its provider. DeepSeek models use the key this application already holds; add one for another provider in its own environment before choosing it.'
+  }
+}
+
+document.getElementById('model')?.addEventListener('click', (event) => {
+  event.stopPropagation()
+  toggleModels()
+})
+
+document.getElementById('model-add')?.addEventListener('click', async () => {
+  const provider = document.getElementById('model-provider')?.value.trim()
+  const model = document.getElementById('model-name')?.value.trim()
+  const name = document.getElementById('model-label')?.value.trim()
+  const result = await api.addModel?.({ provider, model, name })
+  if (result?.ok) {
+    for (const id of ['model-provider', 'model-name', 'model-label']) {
+      const input = document.getElementById(id)
+      if (input) input.value = ''
+    }
+    await renderModels()
+  } else if (modelNote) {
+    modelNote.textContent = result?.reason ?? 'Could not add that model.'
+  }
+})
+
+document.addEventListener('click', (event) => {
+  if (!modelsEl || modelsEl.hidden) return
+  if (modelsEl.contains(event.target) || document.getElementById('model')?.contains(event.target)) return
+  modelsEl.hidden = true
+})
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && modelsEl && !modelsEl.hidden) modelsEl.hidden = true
+})
+
+/** The same line-in-the-conversation that settings use, for saying so. */
+async function say(text) {
+  return tell(text)
+}

@@ -47,7 +47,22 @@
       <button class="rail__btn rail__btn--wide" id="toggle-teacher" title="Show or hide the teacher">◨</button>
       <button class="rail__btn" id="theme" title="Light or dark">◐</button>
       <span class="rail__meter" id="meter" hidden title="What this conversation has cost, in tokens"></span>
-      <span class="rail__model" id="model">connecting…</span>
+      <button class="rail__model" id="model" title="Change the model">connecting…</button>
+      <div class="models" id="models" hidden>
+        <div class="models__head">Model</div>
+        <div class="models__list" id="models-list"></div>
+        <div class="models__add">
+          <div class="models__row">
+            <input id="model-provider" type="text" placeholder="provider" autocomplete="off" spellcheck="false" />
+            <input id="model-name" type="text" placeholder="model id" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="models__row">
+            <input id="model-label" type="text" placeholder="what to call it (optional)" autocomplete="off" spellcheck="false" />
+            <button class="models__go" id="model-add">Add</button>
+          </div>
+          <p class="models__note" id="model-note"></p>
+        </div>
+      </div>
     </header>
 
     <div class="panes" id="panes">

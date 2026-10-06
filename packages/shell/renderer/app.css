@@ -1948,3 +1948,172 @@ body.resizing .teacher {
 .tab[aria-disabled='true']:hover {
   color: color-mix(in srgb, var(--ink-3) 55%, transparent);
 }
+
+/* -------------------------------------------------------------- the model menu
+ *
+ * The rail's model name is a control, so it looks like one on hover and opens a
+ * list. A model whose provider holds no key is listed and marked rather than
+ * hidden: it is a real route that needs one more thing.
+ */
+
+.rail__model {
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  background: transparent;
+  color: var(--mark);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.rail__model:hover {
+  border-color: var(--rule);
+  color: var(--ink);
+}
+
+.models {
+  position: fixed;
+  z-index: 100;
+  top: calc(var(--rail) + 4px);
+  right: 14px;
+  width: 420px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 25%);
+  -webkit-app-region: no-drag;
+}
+
+.models__head {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.models__list {
+  padding: 4px 0;
+}
+
+.model {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+
+.model--on {
+  background: var(--mark-soft);
+  color: var(--ink);
+}
+
+.model--unkeyed {
+  opacity: 0.55;
+}
+
+.model__what {
+  flex: 1;
+  font-size: 0.95em;
+}
+
+.model__id {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.model__needs {
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--paper-2);
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.model__drop {
+  padding: 0 4px;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.model__drop:hover {
+  color: var(--danger);
+}
+
+.models__add {
+  padding: 10px 12px;
+  border-top: 1px solid var(--rule);
+  background: var(--paper-2);
+}
+
+.models__row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.models__row input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  outline: none;
+}
+
+.models__row input:focus {
+  border-color: var(--mark);
+}
+
+.models__go {
+  flex: none;
+  padding: 5px 11px;
+  border: 1px solid var(--mark);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mark);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.models__go:hover {
+  background: var(--mark);
+  color: var(--paper);
+}
+
+.models__note {
+  margin: 0;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.5;
+}

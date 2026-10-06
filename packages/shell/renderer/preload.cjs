@@ -37,6 +37,13 @@ contextBridge.exposeInMainWorld('mimir', {
   /** A conversation so far, for a reload. */
   conversation: (sessionId) => ipcRenderer.invoke('mimir:conversation', sessionId),
 
+  /** Told when the runtime restarts on a different model. */
+  onModel: (handler) => {
+    const listener = (_event, payload) => handler(payload)
+    ipcRenderer.on('mimir:model', listener)
+    return () => ipcRenderer.removeListener('mimir:model', listener)
+  },
+
   /** Streamed events for a session. Returns an unsubscribe function. */
   onEvent: (handler) => {
     const listener = (_event, payload) => handler(payload)
@@ -49,6 +56,18 @@ contextBridge.exposeInMainWorld('mimir', {
   /** Saves the conversation so it can be reread after the window closes. */
   saveConversation: (sessionId, state, lessonPath) =>
     ipcRenderer.invoke('mimir:conversation-save', { sessionId, state, lessonPath }),
+
+  /** Which model answers, what else there is, and whether each has a key. */
+  models: () => ipcRenderer.invoke('mimir:models'),
+
+  /** Chooses a model. Restarts the runtime, because that is where it is taken. */
+  chooseModel: (choice) => ipcRenderer.invoke('mimir:model-choose', choice),
+
+  /** Adds a model, so the choice is not limited to the ones shipped. */
+  addModel: (entry) => ipcRenderer.invoke('mimir:model-add', entry),
+
+  /** Forgets an added model. */
+  removeModel: (entry) => ipcRenderer.invoke('mimir:model-remove', entry),
 
   /** Copies the notes and the conversations to a folder the learner picks. */
   exportVault: () => ipcRenderer.invoke('mimir:vault-export'),

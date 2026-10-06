@@ -619,9 +619,13 @@ async function startVault(paths) {
 
 function startBridge(paths) {
   return new Promise((resolve, reject) => {
+    // The chosen model goes on the command line, because the runtime takes it at
+    // start-up and a session belongs to the runtime that made it.
+    const { chosen } = readModels(paths)
+    const route = chosen ? ['--provider', chosen.provider, '--model', chosen.model] : []
     const child = spawn(
       process.execPath,
-      [paths.bridgeEntry, '--dsh-home', paths.dshHome, '--vault', paths.vault, '--eager'],
+      [paths.bridgeEntry, '--dsh-home', paths.dshHome, '--vault', paths.vault, ...route, '--eager'],
       {
         cwd: paths.bridgeCwd,
         env: {
@@ -660,8 +664,11 @@ function startBridge(paths) {
       // The bridge says which model it is running as it comes up, which is the
       // cheapest place to learn it: no new protocol, and the line already existed.
       const text = chunk.toString()
-      const model = /runtime ready: [^/]+\/(\S+)/.exec(text)
-      if (model) bridgeModel = model[1]
+      const ready = /runtime ready: ([^/\s]+)\/(\S+)/.exec(text)
+      if (ready) {
+        bridgeProvider = ready[1]
+        bridgeModel = ready[2]
+      }
       process.stderr.write(`[bridge] ${text}`)
     })
     child.on('exit', (code) => {
@@ -701,6 +708,8 @@ function startBridge(paths) {
 let splashWindow = null
 /** Which model the runtime came up as, read from its own startup line. */
 let bridgeModel = null
+/** Which provider route the runtime came up on, read from the same line. */
+let bridgeProvider = null
 let mainWindow = null
 let setupWindow = null
 
@@ -1449,6 +1458,169 @@ function conversationFile(paths, sessionId) {
 }
 
 /** Saves one conversation: its turns, its question, and where it belongs. */
+/**
+ * Which model answers, and which others are within reach.
+ *
+ * The rail said the model's name and looked like a control the whole time, which
+ * is a small lie: it was the bridge's own line read back. It is a control now,
+ * because the choice is real — the runtime takes a provider and a model at
+ * start-up, so changing either is a restart of the bridge and nothing more.
+ *
+ * Kept beside the credentials in the harness home, because it is the same kind of
+ * fact: how this installation talks to a model. It is not in the vault, which is
+ * the learner's.
+ */
+const DEFAULT_MODELS = [
+  { provider: 'deepseek-official', model: 'deepseek-flash', name: 'DeepSeek Flash', note: 'the cheaper of the two' },
+  { provider: 'deepseek-official', model: 'deepseek-v4-pro', name: 'DeepSeek Pro', note: 'the stronger of the two' },
+]
+
+function modelFile(paths) {
+  return join(paths.dshHome, 'models.json')
+}
+
+/** What is chosen, and what else there is to choose. */
+function readModels(paths) {
+  let saved = {}
+  try {
+    saved = JSON.parse(readFileSync(modelFile(paths), 'utf8'))
+  } catch {
+    // Nothing chosen yet, which is where every installation starts.
+  }
+  const added = Array.isArray(saved.added) ? saved.added : []
+  const available = [...DEFAULT_MODELS, ...added]
+  const chosen =
+    saved.chosen ??
+    (bridgeModel ? { provider: 'deepseek-official', model: bridgeModel } : null) ??
+    { provider: 'deepseek-official', model: 'deepseek-flash' }
+  return { chosen, available }
+}
+
+function writeModels(paths, state) {
+  mkdirSync(paths.dshHome, { recursive: true })
+  writeFileSync(modelFile(paths), JSON.stringify(state, null, 2))
+}
+
+ipcMain.handle('mimir:models', () => {
+  const paths = resolvePaths()
+  const { chosen, available } = readModels(paths)
+  // Which providers have a key, so the menu can say that a model cannot be used
+  // yet rather than letting it be chosen and then fail at the first question.
+  const refs = credentialsRefs(paths)
+  return {
+    chosen,
+    running: bridgeModel ? { provider: bridgeProvider, model: bridgeModel } : null,
+    available: available.map((entry) => ({
+      ...entry,
+      // DeepSeek is the route the setup sheet writes; anything else needs its own
+      // key, and this says whether one is present.
+      keyed: Boolean(refs[credentialRefFor(entry.provider)]),
+    })),
+  }
+})
+
+/** The environment-variable names the harness holds secrets under. */
+function credentialsRefs(paths) {
+  try {
+    const text = readFileSync(join(paths.dshHome, '.credentials.yaml'), 'utf8')
+    const refs = {}
+    for (const line of text.split('\n')) {
+      const match = /^\s+([A-Z0-9_]+):\s*(\S+)/.exec(line)
+      if (match) refs[match[1]] = match[2]
+    }
+    return refs
+  } catch {
+    return {}
+  }
+}
+
+/** The name a provider's key is held under, which is the harness's convention. */
+function credentialRefFor(provider) {
+  return provider === 'deepseek-official' ? 'DEEPSEEK_API_KEY' : `${String(provider).toUpperCase()}_API_KEY`
+}
+
+/** Chooses a model, and restarts the bridge so it is the one answering. */
+ipcMain.handle('mimir:model-choose', async (_event, choice) => {
+  const paths = resolvePaths()
+  const provider = String(choice?.provider ?? 'deepseek-official')
+  const model = String(choice?.model ?? '').trim()
+  if (!model) return { ok: false, reason: 'no model named' }
+
+  const { available } = readModels(paths)
+  if (!available.some((entry) => entry.provider === provider && entry.model === model)) {
+    return { ok: false, reason: `${model} is not one of the models on offer` }
+  }
+
+  writeModels(paths, { chosen: { provider, model }, added: available.filter((e) => e.added) })
+  // The runtime takes the model at start-up, so this is a restart. The
+  // conversation survives it: chats are written down, and the note is on disk.
+  await restartBridge(paths)
+  return { ok: true, provider, model }
+})
+
+/** Adds a model to the list, so the choice is not limited to two. */
+ipcMain.handle('mimir:model-add', (_event, entry) => {
+  const paths = resolvePaths()
+  const provider = String(entry?.provider ?? '').trim()
+  const model = String(entry?.model ?? '').trim()
+  const name = String(entry?.name ?? '').trim()
+  if (!provider || !model) return { ok: false, reason: 'a provider and a model are both needed' }
+
+  const { chosen, available } = readModels(paths)
+  if (available.some((e) => e.provider === provider && e.model === model)) {
+    return { ok: false, reason: 'that model is already on the list' }
+  }
+  const added = [...available.filter((e) => e.added), { provider, model, name: name || model, added: true }]
+  writeModels(paths, { chosen, added })
+  return { ok: true }
+})
+
+/** Forgets an added model. The two DeepSeek routes stay. */
+ipcMain.handle('mimir:model-remove', (_event, entry) => {
+  const paths = resolvePaths()
+  const { chosen, available } = readModels(paths)
+  const added = available
+    .filter((e) => e.added)
+    .filter((e) => !(e.provider === entry?.provider && e.model === entry?.model))
+  writeModels(paths, { chosen, added })
+  return { ok: true }
+})
+
+/**
+ * Stops the bridge and starts it again, on the model just chosen.
+ *
+ * The alternative is passing the model per turn, which the protocol does not
+ * offer — a session belongs to the runtime that made it. A restart is honest and
+ * quick, and nothing is lost by it.
+ */
+async function restartBridge(paths) {
+  note('restarting the runtime on the chosen model')
+  // Waited for, not merely signalled: the old bridge holds the port and the
+  // harness it spawned, and starting the next one before it has gone is how two
+  // runtimes end up answering at once.
+  const dying = children.bridge
+  if (dying) {
+    await new Promise((resolve) => {
+      const done = setTimeout(resolve, 4000)
+      dying.once('exit', () => {
+        clearTimeout(done)
+        resolve()
+      })
+      dying.kill('SIGTERM')
+    })
+  }
+  children.bridge = null
+  bridge = null
+  bridgeModel = null
+  bridgeProvider = null
+  await startBridge(paths)
+  forwardBridgeEvents()
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('mimir:event', { type: 'runtime', status: 'restarted' })
+    window.webContents.send('mimir:model', { provider: bridgeProvider, model: bridgeModel })
+  }
+}
+
 /**
  * Exports the vault to a folder the learner chooses.
  *
