@@ -69,6 +69,18 @@ contextBridge.exposeInMainWorld('mimir', {
   /** Forgets an added model. */
   removeModel: (entry) => ipcRenderer.invoke('mimir:model-remove', entry),
 
+  /** Which providers hold a key. Names only, never the secrets. */
+  providerKeys: () => ipcRenderer.invoke('mimir:provider-keys'),
+
+  /** Sets a provider's key. It never comes back out of the shell. */
+  setProviderKey: (provider, apiKey) => ipcRenderer.invoke('mimir:provider-key', { provider, apiKey }),
+
+  /** Forgets a provider's key. */
+  removeProviderKey: (provider) => ipcRenderer.invoke('mimir:provider-key-remove', provider),
+
+  /** Deletes a chat and its transcript. */
+  deleteChat: (sessionId) => ipcRenderer.invoke('mimir:chat-delete', sessionId),
+
   /** Copies the notes and the conversations to a folder the learner picks. */
   exportVault: () => ipcRenderer.invoke('mimir:vault-export'),
 

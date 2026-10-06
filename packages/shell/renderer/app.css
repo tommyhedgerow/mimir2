@@ -29,6 +29,10 @@
   /* The only red in the window, and it means one thing: this cannot be undone. */
   --danger: #b3261e;
   --danger-soft: #fbeae8;
+  /* The learner's own colour. Warm, and the only warm thing in a window of
+     greens, because a conversation should be easy to find your own lines in. */
+  --you: #b0703c;
+  --you-soft: #f7efe6;
 
   --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -236,6 +240,8 @@ body {
   --peach: #8fd6a4;
   --danger: #ff6b6b;
   --danger-soft: #3a1d1d;
+  --you: #e0a878;
+  --you-soft: #241d16;
 }
 
 /* Stated last so it overrules a system dark preference. */
@@ -478,24 +484,75 @@ body {
   font-size: 0.94em;
 }
 
+/*
+ * Who is speaking, at a glance.
+ *
+ * The two voices were told apart by a two-pixel rule, one green and one grey,
+ * which is the least a reader can be given and still be told. The teacher now
+ * carries the mark — the same rune as the window's own, and the same one the
+ * application is named for — and the learner carries a colour, because a
+ * conversation is easier to follow when the eye can find its own lines.
+ */
 .turn {
   position: relative;
   margin: 0 0 20px;
-  padding-left: 12px;
+  padding-left: 30px;
 }
 
 .turn::before {
   content: '';
   position: absolute;
-  top: 0.45em;
+  top: 0.5em;
   left: 0;
-  width: 2px;
-  height: 1em;
-  border-radius: 2px;
-  background: var(--line);
+  width: 18px;
+  height: 18px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  opacity: 0.9;
 }
 
-.turn--assistant::before { background: var(--mark); }
+/* The teacher: the rune. */
+.turn--assistant::before {
+  background-image: var(--mark-image);
+}
+
+/* The learner: a filled marker in their own colour, so the two are never
+   mistaken even at a glance down the pane. */
+.turn--user::before {
+  content: '';
+  top: 0.62em;
+  left: 5px;
+  width: 9px;
+  height: 9px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--you);
+  background-image: none;
+}
+
+.turn--user .turn__body {
+  padding: 7px 10px;
+  border-left: 2px solid var(--you);
+  border-radius: 0 4px 4px 0;
+  background: var(--you-soft);
+}
+
+/* A question, from the teacher, and the options it offers. */
+.turn--question::before {
+  background-image: var(--mark-image);
+}
+
+/* A line this application says about itself rather than a turn in the lesson. */
+.turn--notice::before {
+  background-image: none;
+  content: '·';
+  width: auto;
+  height: auto;
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.4;
+}
 
 .turn__body > *:first-child { margin-top: 0; }
 .turn__body > *:last-child { margin-bottom: 0; }
@@ -2116,4 +2173,39 @@ body.resizing .teacher {
   font-family: var(--mono);
   font-size: 9px;
   line-height: 1.5;
+}
+
+/* ------------------------------------------------------------ the key row, and
+ * deleting a chat */
+
+.models__key {
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.models__row .models__held {
+  flex: 1;
+  align-self: center;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+
+/* Deleting a conversation, on the row it belongs to. Quiet until pointed at,
+   because it sits beside the row's own action and must not be the easy one. */
+.chat__drop {
+  flex: none;
+  padding: 0 3px;
+  color: transparent;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.chat:hover .chat__drop {
+  color: var(--ink-3);
+}
+
+.chat__drop:hover {
+  color: var(--danger);
 }

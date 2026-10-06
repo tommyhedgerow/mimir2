@@ -987,11 +987,39 @@ function hasModel(paths) {
  */
 function writeCredentials(paths, provider, apiKey) {
   mkdirSync(paths.dshHome, { recursive: true })
-  const ref = provider === 'deepseek-official' ? 'DEEPSEEK_API_KEY' : `${provider.toUpperCase()}_API_KEY`
-  const yaml = ['version: 1', 'refs:', `  ${ref}: ${JSON.stringify(apiKey)}`, ''].join('\n')
+  // Read what is there and add to it. Writing the file fresh — which this did —
+  // means a second provider's key silently removes the first, and the only sign
+  // of it is a model that stops answering.
+  const refs = credentialsRefs(paths)
+  refs[credentialRefFor(provider)] = apiKey
+  return writeRefs(paths, refs)
+}
+
+/**
+ * The credential file, written whole from a set of refs.
+ *
+ * The shape is DSH's, not this application's: a `refs` map from an
+ * environment-variable name to a secret, and the only thing the harness reads to
+ * find a key.
+ */
+function writeRefs(paths, refs) {
+  mkdirSync(paths.dshHome, { recursive: true })
+  const lines = ['version: 1', 'refs:']
+  for (const [ref, secret] of Object.entries(refs).sort()) {
+    lines.push(`  ${ref}: ${JSON.stringify(secret)}`)
+  }
+  lines.push('')
   const path = join(paths.dshHome, '.credentials.yaml')
-  writeFileSync(path, yaml, { mode: 0o600 })
+  writeFileSync(path, lines.join('\n'), { mode: 0o600 })
   return path
+}
+
+/** Forgets a provider's key. */
+function forgetCredential(paths, provider) {
+  const refs = credentialsRefs(paths)
+  delete refs[credentialRefFor(provider)]
+  writeRefs(paths, refs)
+  return refs
 }
 
 /**
@@ -1540,6 +1568,50 @@ function credentialRefFor(provider) {
 }
 
 /** Chooses a model, and restarts the bridge so it is the one answering. */
+/**
+ * Sets a provider's API key.
+ *
+ * The key does not leave this process: it is written to the file the harness
+ * reads and is never sent to the page, which is why the page can ask only
+ * *whether* a provider has one.
+ *
+ * It is not verified against the provider, and that is deliberate. Every provider
+ * checks a key differently — some charge for the privilege — and a wrong key fails
+ * at the first question with the provider's own words, which is a better error
+ * than one this could invent.
+ */
+ipcMain.handle('mimir:provider-key', (_event, payload) => {
+  const paths = resolvePaths()
+  const name = String(payload?.provider ?? '').trim()
+  const key = String(payload?.apiKey ?? '').trim()
+  if (!name) return { ok: false, reason: 'no provider named' }
+  if (!key) return { ok: false, reason: 'no key given' }
+  try {
+    writeCredentials(paths, name, key)
+    note('a key was saved for ' + name)
+    return { ok: true, ref: credentialRefFor(name) }
+  } catch (error) {
+    return { ok: false, reason: error.message }
+  }
+})
+
+/** Forgets a provider's key. */
+ipcMain.handle('mimir:provider-key-remove', (_event, provider) => {
+  const paths = resolvePaths()
+  try {
+    forgetCredential(paths, String(provider ?? '').trim())
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, reason: error.message }
+  }
+})
+
+/** Which providers hold a key. Names only — never the secrets. */
+ipcMain.handle('mimir:provider-keys', () => {
+  const refs = credentialsRefs(resolvePaths())
+  return Object.keys(refs).map((ref) => ref.replace(/_API_KEY$/, '').toLowerCase().replace(/_/g, '-'))
+})
+
 ipcMain.handle('mimir:model-choose', async (_event, choice) => {
   const paths = resolvePaths()
   const provider = String(choice?.provider ?? 'deepseek-official')
@@ -1834,6 +1906,21 @@ function tidyConversations(paths) {
   if (removed) note(`tidied ${removed} duplicate conversation files`)
   return { removed, kept: keep.size }
 }
+
+/** Deletes a chat. Its file goes, and the conversation with it. */
+ipcMain.handle('mimir:chat-delete', (_event, sessionId) => {
+  const paths = resolvePaths()
+  const dir = join(paths.vault, 'Learn', 'Sessions', '.live', 'conversations')
+  const wanted = String(sessionId ?? '').replace(/[^\w.-]/g, '_')
+  if (!wanted) return { ok: false, reason: 'no chat named' }
+  try {
+    rmSync(join(dir, wanted + '.json'), { force: true })
+    note('a chat was deleted')
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, reason: error.message }
+  }
+})
 
 /** One chat, to read or to continue. */
 ipcMain.handle('mimir:chat', (_event, sessionId) => {

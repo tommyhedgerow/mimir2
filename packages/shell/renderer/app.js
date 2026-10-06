@@ -1910,7 +1910,28 @@ async function renderChats() {
     count.className = 'chat__count'
     count.textContent = `${chat.messages}`
 
-    row.append(what, count, when)
+    const drop = document.createElement('span')
+    drop.className = 'chat__drop'
+    drop.textContent = '×'
+    drop.title = 'Delete this chat'
+    drop.addEventListener('click', async (event) => {
+      // Deleting a conversation is not deleting a lesson: the note stays, and
+      // the note is the part that was written down to keep.
+      event.stopPropagation()
+      const result = await api.deleteChat?.(chat.id)
+      if (result?.ok) {
+        if (chat.id === chatId) {
+          chatId = null
+          restoredMessages = []
+          restoredQuestion = null
+          lastMessageCount = -1
+          await refresh()
+        }
+        await renderChats()
+      }
+    })
+
+    row.append(what, count, when, drop)
     row.title = chat.lessonPath ? `Lesson note: ${chat.lessonPath}` : 'No lesson note yet'
     row.addEventListener('click', () => openChat(chat.id))
     chatsList.append(row)
@@ -2211,11 +2232,41 @@ async function renderModels() {
     modelsList.append(row)
   }
 
+  // Which providers hold a key, by name only. The secrets are not here and never
+  // travel to the page.
+  const held = document.getElementById('keys-held')
+  if (held) {
+    let providers = []
+    try {
+      providers = (await api.providerKeys?.()) ?? []
+    } catch {
+      providers = []
+    }
+    held.textContent = providers.length ? `keys held: ${providers.join(', ')}` : 'no keys held'
+  }
+
   if (modelNote) {
     modelNote.textContent =
-      'A model needs an API key for its provider. DeepSeek models use the key this application already holds; add one for another provider in its own environment before choosing it.'
+      'A model needs an API key for its provider. Saving one here does not verify it — a wrong key fails at the first question, in the provider’s own words.'
   }
 }
+
+document.getElementById('key-save')?.addEventListener('click', async () => {
+  const provider = document.getElementById('key-provider')?.value.trim()
+  const apiKey = document.getElementById('key-value')?.value
+  const result = await api.setProviderKey?.(provider, apiKey)
+  const note = document.getElementById('model-note')
+  if (result?.ok) {
+    for (const id of ['key-provider', 'key-value']) {
+      const input = document.getElementById(id)
+      if (input) input.value = ''
+    }
+    await renderModels()
+    if (note) note.textContent = `Saved. ${provider} can be chosen now.`
+  } else if (note) {
+    note.textContent = result?.reason ?? 'Could not save that key.'
+  }
+})
 
 document.getElementById('model')?.addEventListener('click', (event) => {
   event.stopPropagation()

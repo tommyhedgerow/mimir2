@@ -60,6 +60,16 @@
             <input id="model-label" type="text" placeholder="what to call it (optional)" autocomplete="off" spellcheck="false" />
             <button class="models__go" id="model-add">Add</button>
           </div>
+          <div class="models__key" id="models-key">
+            <div class="models__row">
+              <input id="key-provider" type="text" placeholder="provider (e.g. openai)" autocomplete="off" spellcheck="false" />
+              <input id="key-value" type="password" placeholder="API key" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="models__row">
+              <span class="models__held" id="keys-held"></span>
+              <button class="models__go" id="key-save">Save key</button>
+            </div>
+          </div>
           <p class="models__note" id="model-note"></p>
         </div>
       </div>
