@@ -13,7 +13,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync, realpathSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -38,11 +38,27 @@ test('the SDK client resolves from the profile', () => {
 })
 
 test('the bridge does not carry its own copy of the harness', () => {
-  // A dependency tree here means somebody reinstalled it without the .npmrc,
-  // and the bundle quietly gained 495 MB.
+  // The failure this guards is the bundle quietly gaining 495 MB, and the way that
+  // happens is a real copy of the harness tree landing here. A pnpm workspace
+  // symlink is not that: it points into the store and ships nothing.
+  //
+  // The check was `!existsSync(...)`, which passed only because a root install had
+  // never been run against this directory. It fails on a fresh clone for a reason
+  // that is not the thing it guards, so it asks the real question now: where does
+  // the resolution land?
   const own = join(appRoot, 'packages', 'bridge', 'node_modules')
+  if (!existsSync(own)) return // Nothing here is also fine: the profile resolves it.
+
+  const sdk = join(own, '@deepseek-ai', 'dsh-sdk-client')
+  if (!existsSync(sdk)) return
+
   assert.ok(
-    !existsSync(own),
-    'the bridge has its own node_modules; it should resolve from the profile instead',
+    lstatSync(sdk).isSymbolicLink(),
+    'the bridge carries a real copy of the harness; it should resolve from the profile',
+  )
+  const landed = realpathSync(sdk)
+  assert.ok(
+    !landed.startsWith(realpathSync(join(appRoot, 'packages', 'bridge'))),
+    `the harness resolves inside the bridge (${landed}); it should come from the profile`,
   )
 })

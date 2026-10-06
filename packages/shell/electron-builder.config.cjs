@@ -80,10 +80,19 @@ module.exports = {
   mac: {
     category: 'public.app-category.education',
     icon: 'build/icon.icns',
-    target: [
-      { target: 'dmg', arch: ['arm64'] },
-      { target: 'zip', arch: ['arm64'] },
-    ],
+    // NO `arch` here, deliberately.
+    //
+    // It was `arch: ['arm64']`, and electron-builder treats a CLI `--x64` as an
+    // ADDITION to the configured architectures rather than a replacement. So
+    // `build-app.sh --x64` packaged both, and both were built with whichever
+    // SiYuan kernel `vendor/siyuan` happened to point at — producing an arm64
+    // application carrying an x86_64 kernel. It built, it packaged, the bundle
+    // check passed, and it would have died on the machine it was built for.
+    //
+    // The kernel is a native binary, so one build can only ever be one
+    // architecture. The architecture is chosen on the command line, by
+    // build-app.sh, and never here.
+    target: ['dmg', 'zip'],
     // Hardened runtime with the two entitlements a spawned child needs. The
     // kernel and the bridge are separate processes; without these the app runs
     // on a developer's machine and is killed on a signed one.

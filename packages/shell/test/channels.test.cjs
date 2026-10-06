@@ -444,3 +444,28 @@ test('the build and the shell know where each platform keeps the kernel', () => 
     assert.ok(bundleCheck.includes(expected), `the bundle check has no path for ${expected}`)
   }
 })
+
+
+test('the mac target does not force an architecture', () => {
+  // It was `arch: ['arm64']`, and electron-builder treats a CLI `--x64` as an
+  // ADDITION to the configured architectures rather than a replacement. So
+  // `build-app.sh --x64` packaged BOTH, each with whichever SiYuan kernel
+  // `vendor/siyuan` happened to point at — producing an arm64 application
+  // carrying an x86_64 kernel. It built, it packaged, the bundle check passed, and
+  // it would have died on the machine it was built for.
+  //
+  // The kernel is a native binary, so one build can only be one architecture.
+  // Nothing in this file may choose it.
+  const config = readFileSync(join(__dirname, '..', 'electron-builder.config.cjs'), 'utf8')
+  const mac = config.slice(config.indexOf('mac: {'), config.indexOf('dmg: {'))
+  // Comments stripped: the note explaining this trap contains the word "arch", and
+  // a test that fails because of its own documentation is not a test.
+  const code = mac.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+  assert.ok(
+    !/arch\s*:/.test(code),
+    'the mac target declares an architecture; a CLI flag will add to it, not replace it',
+  )
+  // The build script chooses it instead, and says so.
+  const script = readFileSync(join(__dirname, '..', '..', '..', 'scripts', 'build-app.sh'), 'utf8')
+  assert.ok(!/ARCH_FLAG=/.test(script) || /uname -m/.test(script), 'the build script does not pick an architecture')
+})
