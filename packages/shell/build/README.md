@@ -47,6 +47,41 @@ The three things that assumed macOS and now do not:
     the paths its target actually produces, because a Mac-shaped check run against
     a Windows build reports every resource missing.
 
+## Two Mac architectures, and the trap in building both
+
+The kernel is a native binary, so an Intel build needs the Intel SiYuan and an
+Apple Silicon build needs the Apple Silicon one. `siyuan-3.8.6-mac.dmg` is Intel;
+`siyuan-3.8.6-mac-arm64.dmg` is Apple Silicon. Each is vendored under its own name
+and `vendor/siyuan` is a link to whichever is being built:
+
+```sh
+ln -sfn siyuan-mac packages/shell/vendor/siyuan      # Apple Silicon
+ln -sfn siyuan-x64 packages/shell/vendor/siyuan      # Intel
+bash app/scripts/build-app.sh --arm64                # or: --x64
+```
+
+**The trap.** `electron-builder.config.cjs` declares `arch: ['arm64']` for the mac
+target, and an `--x64` on the command line does not remove that — it *adds*. So
+`build-app.sh --mac --x64` produced **both** an Intel and an Apple Silicon dmg, and
+both were packaged with whichever kernel the link happened to point at. The result
+was an `arm64` application carrying an `x86_64` kernel: it builds, it packages, the
+bundle check passes, and it dies on the machine it was built for. It is the same
+shape of failure as the rest of this file — every layer reports success.
+
+**Check the pair, not the app.** After building either architecture:
+
+```sh
+lipo -archs dist/app/mac-arm64/Mimir.app/Contents/MacOS/Mimir
+lipo -archs dist/app/mac-arm64/Mimir.app/Contents/Resources/siyuan/Contents/Resources/kernel/SiYuan-Kernel
+```
+
+Those two lines must print the same thing. If they do not, the vendor link was
+pointing at the other architecture when the build ran.
+
+Also worth knowing: `dist/app/Mimir-0.1.0.dmg` (no architecture in the name) is the
+Intel dmg, and `Mimir-0.1.0-arm64.dmg` is the Apple Silicon one. Building one does
+not overwrite the other, which makes it easy to hand somebody the wrong file.
+
 ## Where the cross-platform work stands
 
 It was taken as far as a real installer — `Mimir Setup 0.1.0.exe`, x64, built from
