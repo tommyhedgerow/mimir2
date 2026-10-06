@@ -1285,8 +1285,28 @@ async function bridgeCall(method, params) {
  * stops updating, and a surface that silently stops updating is the failure that
  * looks least like one.
  */
+/**
+ * The one event pump, and the reason there is only one.
+ *
+ * This is an endless loop: it reads the bridge's stream and reconnects when the
+ * stream drops. Restarting the runtime started a *second* loop while the first
+ * went on trying to reconnect to a bridge that no longer existed — so after a
+ * model switch two pumps were running, the live one was not the only reader, and
+ * answers stopped reaching the window. The bridge answered; the page never heard.
+ *
+ * One pump, therefore, with an abort: the next one cannot start until the last
+ * has stopped.
+ */
+let pumpAbort = null
+
 function forwardBridgeEvents() {
   if (!bridge?.url) return
+  pumpAbort?.abort()
+  pumpAbort = new AbortController()
+  // Held by this pump, not read afresh each turn of the loop: a pump that has
+  // been replaced must see *its own* abort, not the signal of the one that
+  // replaced it.
+  const signal = pumpAbort.signal
 
   const send = (payload) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -1296,9 +1316,14 @@ function forwardBridgeEvents() {
 
   const pump = async () => {
     for (;;) {
+      if (signal.aborted) return
       try {
+        // Read through the pump's own signal, which is aborted when the runtime
+        // is replaced, and through a fresh URL each time — a pump that outlives
+        // its bridge is a pump reading nothing.
         const response = await fetch(`${bridge.url}/events`, {
           headers: { accept: 'text/event-stream' },
+          signal,
         })
         if (!response.ok || !response.body) throw new Error(`stream ${response.status}`)
 
@@ -1325,13 +1350,17 @@ function forwardBridgeEvents() {
           }
         }
       } catch (error) {
+        // An aborted pump is a replaced one, not a dropped one.
+        if (signal.aborted) return
         note(`event stream dropped (${error.message}); reconnecting`)
       }
       await new Promise((resolve) => setTimeout(resolve, 1000))
     }
   }
 
-  pump().catch((error) => note(`event stream gave up: ${error.message}`))
+  pump().catch((error) => {
+    if (!signal.aborted) note(`event stream gave up: ${error.message}`)
+  })
 }
 
 ipcMain.handle('mimir:ask', async (_event, { sessionId, text }) =>
@@ -1681,6 +1710,10 @@ async function restartBridge(paths) {
       dying.kill('SIGTERM')
     })
   }
+  // The pump belongs to the runtime it was reading. Stopping it here rather than
+  // letting the next start displace it is what keeps one reader on the stream.
+  pumpAbort?.abort()
+  pumpAbort = null
   children.bridge = null
   bridge = null
   bridgeModel = null

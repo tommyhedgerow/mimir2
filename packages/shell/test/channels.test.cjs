@@ -355,3 +355,33 @@ test('the profile stamp covers skill content, not only the manifest', () => {
     'the stamp is still only the manifest',
   )
 })
+
+
+test('the event pump is single, and abortable', () => {
+  // The pump is an endless loop that reconnects when the stream drops. Restarting
+  // the runtime started a *second* loop while the first went on reconnecting to a
+  // bridge that no longer existed — so after a model switch two pumps were running,
+  // the live one was not the only reader, and answers stopped reaching the window.
+  // The bridge answered; the page never heard it.
+  const main = readFileSync(join(__dirname, '..', 'main.cjs'), 'utf8')
+
+  assert.match(main, /let pumpAbort = null/, 'there is no single-pump guard')
+  assert.match(main, /pumpAbort\?\.abort\(\)/, 'the previous pump is never stopped')
+  assert.match(main, /new AbortController\(\)/, 'the pump has no abort signal')
+  assert.match(main, /signal,/, 'the read does not use the pump signal')
+
+  // And its own signal, not the module-level one: a pump that has been replaced
+  // would otherwise look at the *new* pump's signal, see it alive, and go on.
+  assert.match(main, /const signal = pumpAbort\.signal/, 'the pump does not hold its own signal')
+  assert.ok(
+    !/pumpAbort\?\.signal\.aborted/.test(main),
+    'the pump reads the module-level signal, which a replaced pump would see as alive',
+  )
+
+  // The restart has to stop the pump *before* the next one starts.
+  const restart = main.slice(main.indexOf('async function restartBridge'))
+  const abortAt = restart.indexOf('pumpAbort?.abort()')
+  const startAt = restart.indexOf('forwardBridgeEvents()')
+  assert.ok(abortAt !== -1, 'the restart does not stop the pump')
+  assert.ok(startAt > abortAt, 'the restart starts a new pump before stopping the old one')
+})
