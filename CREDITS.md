@@ -75,7 +75,7 @@ at the version pinned in the profile.
 
 ## Mimir's own code — MIT License
 
-<https://github.com/tommyhedgerow/Mimir>
+<https://github.com/tommyhedgerow/mimir2>
 
 The shell, the bridge, the plugin, the markdown parser, the vault sync and the
 teaching method — the persona, the nine skills and the six specialists — are

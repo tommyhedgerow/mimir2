@@ -1,0 +1,33 @@
+# Dependencies. Every one of these is rebuilt from a lockfile.
+node_modules/
+**/node_modules/
+
+# The packaged application. ~4 GB, and reproducible from source.
+dist/
+
+# SiYuan is vendored into the build, not committed: ~625 MB per architecture, and a
+# build should copy it from a known-good installation rather than trust a
+# directory in a repository.
+packages/shell/vendor/
+packages/shell/vendor/siyuan
+packages/shell/vendor/siyuan-mac
+packages/shell/vendor/siyuan-x64
+packages/shell/vendor/siyuan-win
+packages/shell/vendor/siyuan-linux
+
+# Downloaded SiYuan releases (~250 MB each), kept so a second build does not fetch
+# the same archive twice, and the 7-Zip used to unpack the Windows one.
+.cache/
+
+# Generated from the vendored SiYuan: 3.5 MB of minified engine, rebuilt by
+# scripts/sync-mermaid.mjs, which every build runs.
+packages/shell/renderer/mermaid.js
+packages/shell/renderer/mermaid.version
+
+# macOS.
+.DS_Store
+
+# Run artefacts. `packages/shell/siyuan-version.txt` is deliberately NOT here: it
+# records which SiYuan a build carries, so the source offered by CREDITS.md and the
+# binary shipped beside it can be checked against each other.
+*.log

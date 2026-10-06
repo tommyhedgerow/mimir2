@@ -6,16 +6,15 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tommyhedgerow/Mimir.git",
-    "directory": "preset/mimir-skin"
+    "url": "git+https://github.com/tommyhedgerow/mimir2.git",
+    "directory": "packages/mimir-skin"
   },
-  "homepage": "https://github.com/tommyhedgerow/Mimir#readme",
+  "homepage": "https://github.com/tommyhedgerow/mimir2#readme",
   "keywords": [
     "deepseek",
     "harness",
     "dsh",
     "dsh-plugin",
-    "obsidian",
     "learning",
     "tutor"
   ],

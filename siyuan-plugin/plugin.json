@@ -1,12 +1,20 @@
 {
   "name": "mimir",
   "author": "tommyhedgerow",
-  "url": "https://github.com/tommyhedgerow/Mimir",
+  "url": "https://github.com/tommyhedgerow/mimir2",
   "version": "0.1.0",
   "minAppVersion": "3.8.0",
-  "kernels": ["all"],
-  "backends": ["all"],
-  "frontends": ["desktop", "desktop-window", "browser-desktop"],
+  "kernels": [
+    "all"
+  ],
+  "backends": [
+    "all"
+  ],
+  "frontends": [
+    "desktop",
+    "desktop-window",
+    "browser-desktop"
+  ],
   "disabledInPublish": true,
   "displayName": {
     "default": "Mimir",
@@ -14,6 +22,6 @@
   },
   "description": {
     "default": "The teacher in the vault: a dock that talks to the Mimir runtime and writes what you learn as notes.",
-    "zh-CN": "库中的老师：与 Mimir 运行时对话，并把所学写成笔记的停靠面板。"
+    "zh-CN": "\u5e93\u4e2d\u7684\u8001\u5e08\uff1a\u4e0e Mimir \u8fd0\u884c\u65f6\u5bf9\u8bdd\uff0c\u5e76\u628a\u6240\u5b66\u5199\u6210\u7b14\u8bb0\u7684\u505c\u9760\u9762\u677f\u3002"
   }
 }
