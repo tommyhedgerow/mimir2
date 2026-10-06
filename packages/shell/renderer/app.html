@@ -13,6 +13,33 @@
     <header class="rail">
       <span class="rail__mark" aria-hidden="true"></span>
       <button class="rail__where" id="where" title="Show the vault folder"></button>
+      <button class="rail__btn rail__btn--text" id="chats-open" title="Chats">chats</button>
+      <button class="rail__btn rail__btn--text" id="settings-open" title="Settings">⋯</button>
+      <div class="settings" id="settings" hidden>
+        <div class="settings__head">Settings</div>
+        <button class="settings__row" id="settings-export">
+          <span class="settings__what">Export the vault</span>
+          <span class="settings__why">copies the notes and the conversations to a folder you choose</span>
+        </button>
+        <div class="settings__danger">
+          <div class="settings__row settings__row--flat">
+            <span class="settings__what">Clear the vault</span>
+            <span class="settings__why">removes every note and conversation, and writes a fresh vault</span>
+          </div>
+          <div class="settings__confirm">
+            <label for="settings-word">Type <strong>clear</strong> to confirm</label>
+            <input id="settings-word" type="text" autocomplete="off" spellcheck="false" placeholder="clear" />
+            <button class="settings__go" id="settings-clear" disabled>Clear it</button>
+          </div>
+        </div>
+      </div>
+      <div class="chats" id="chats" hidden>
+        <div class="chats__head">
+          <span>Chats</span>
+          <button class="chats__new" id="chats-new">new chat</button>
+        </div>
+        <div class="chats__list" id="chats-list"></div>
+      </div>
       <button class="rail__btn rail__btn--wide" id="toggle-vault" title="Show or hide the vault">◧</button>
       <span class="rail__gap"></span>
       <button class="rail__btn" id="fresh" title="Start a new conversation">new</button>

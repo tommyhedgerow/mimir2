@@ -1022,6 +1022,14 @@ freshEl.addEventListener('click', async () => {
   nextSession()
   restoredMessages = []
   restoredQuestion = null
+  chatId = null
+  // And it brings no lesson note with it. This is the fault that fused two
+  // lessons: the previous chat's note stayed loaded, so the teacher wrote the new
+  // subject into the old subject's file. A note belongs to the conversation that
+  // produced it, and a new conversation has none until the teacher writes one.
+  lessonPath = null
+  lessonStamp = ''
+  if (boardEl) boardEl.textContent = ''
   // The pane is redrawn from the session, so starting one is only a matter of
   // naming a new one and asking again — there is no transcript to clear by hand.
   lastMessageCount = -1
@@ -1036,7 +1044,7 @@ freshEl.addEventListener('click', async () => {
 
 async function start() {
   const status = await api.status()
-  modelEl.textContent = status.bridge ? 'ready' : 'no runtime'
+  modelEl.textContent = status.bridge ? (status.model ?? 'ready') : 'no runtime'
   if (status.vaultPath) {
     whereEl.textContent = status.vaultPath.replace(/^.*\//, '')
     whereEl.title = `${status.vaultPath} — click to open the folder`
@@ -1384,7 +1392,12 @@ async function refresh() {
 
   // Saved after every change, so closing the window is not a decision anybody
   // has to make in advance.
-  api.saveConversation?.(sessionId, displayState(state), lessonPath).catch(() => {})
+  const shown = displayState(state)
+  if (shown.messages.length) {
+    // Saved under the chat's identity, so continuing a conversation updates it
+    // rather than making another copy of it.
+    api.saveConversation?.(chatIdentity(shown), shown, lessonPath).catch(() => {})
+  }
 }
 
 /**
@@ -1398,6 +1411,8 @@ async function restoreConversation() {
   try {
     const saved = await api.loadConversation?.()
     if (!saved?.messages?.length) return false
+    // Resuming the chat that was open, under its own identity.
+    chatId = saved.id ?? saved.sessionId ?? null
     restoredMessages = saved.messages
     restoredQuestion = saved.board ?? null
     lastMessageCount = -1
@@ -1662,18 +1677,77 @@ function showAgent(id) {
 const meterEl = document.getElementById('meter')
 
 /**
- * Rates, per million tokens, for the model in use.
+ * Rates, per million tokens, from DeepSeek's published price list.
  *
- * Kept here rather than inferred, and empty by default: a made-up price is worse
- * than none, and a wrong one is worse still. The meter shows tokens until a rate
- * is filled in.
+ * https://api-docs.deepseek.com/quick_start/pricing
+ *
+ * Two things about this are not obvious and both matter to being right:
+ *
+ *   * **Peak and off-peak are different prices**, and off-peak is half. Peak is
+ *     01:00–04:00 and 06:00–10:00 UTC, Monday to Friday, excluding Chinese public
+ *     holidays; everything else is off-peak, including weekends in full.
+ *   * **A cache hit is a different price from a cache miss** — fifty times
+ *     different, in fact — and the runtime reports both counts separately, so
+ *     lumping all input together would be wrong by more than the cost itself.
+ *
+ * The runtime reports tokens per message as they happen, so the cost of a turn is
+ * worked out at the moment it arrives, at the rate that applied then. A
+ * conversation that spans the peak boundary is therefore priced correctly rather
+ * than at whatever rate happened to be in force when it was last looked at.
  */
 const RATES = {
-  'deepseek-v4-flash': { input: 0.14, output: 0.28, cacheRead: 0.014 },
+  // `deepseek-flash` is the current name; the legacy names resolve to it and bill
+  // at the same price.
+  'deepseek-flash': {
+    peak: { cacheHit: 0.006, cacheMiss: 0.3, output: 1.2 },
+    offPeak: { cacheHit: 0.003, cacheMiss: 0.15, output: 0.6 },
+  },
+  'deepseek-v4-pro': {
+    peak: { cacheHit: 0.044, cacheMiss: 1.32, output: 3.96 },
+    offPeak: { cacheHit: 0.022, cacheMiss: 0.66, output: 1.98 },
+  },
+}
+
+/** The legacy names, which bill as the model they now resolve to. */
+const MODEL_ALIASES = {
+  'deepseek-v4-flash': 'deepseek-flash',
+  'deepseek-v4-flash-vision-exp': 'deepseek-flash',
+}
+
+/** Whether DeepSeek is charging peak rates right now. */
+function isPeak(now = new Date()) {
+  const day = now.getUTCDay()
+  // Weekends are off-peak in full.
+  if (day === 0 || day === 6) return false
+  const hour = now.getUTCHours()
+  return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10)
+}
+
+/**
+ * The cost of one assistant message, at the rate in force when it arrived.
+ *
+ * Recorded per message rather than summed at the end because the rate changes by
+ * the hour, and a conversation that runs across the boundary is two prices.
+ */
+function costOf(usage, model, at = Date.now()) {
+  const name = MODEL_ALIASES[model] ?? model
+  const rate = RATES[name]
+  if (!rate) return null
+  const table = isPeak(new Date(at)) ? rate.peak : rate.offPeak
+  const per = 1_000_000
+  const cacheMiss = (usage?.inputTokens ?? 0) / per
+  const cacheHit = (usage?.cacheReadTokens ?? 0) / per
+  const output = (usage?.outputTokens ?? 0) / per
+  return cacheMiss * table.cacheMiss + cacheHit * table.cacheHit + output * table.output
 }
 
 function renderMeter(usage, model) {
   if (!meterEl) return
+  // Hidden until there is something to measure. It was hidden before because
+  // there was no usage and the session was fresh — and hiding a meter is how it
+  // goes unnoticed. It appeared the moment there was a figure, and the figure was
+  // in the rail where the model's name is; both are true and the first look was
+  // simply before anything had been spent.
   const total = usage?.totalTokens ?? 0
   if (!total) {
     meterEl.hidden = true
@@ -1681,23 +1755,302 @@ function renderMeter(usage, model) {
   }
   meterEl.hidden = false
 
-  const rate = RATES[model]
   const tokens = `${Math.round(total / 1000)}k`
-  if (!rate) {
+  const name = MODEL_ALIASES[model] ?? model
+  const peak = isPeak()
+
+  if (!RATES[name]) {
     meterEl.textContent = tokens
-    meterEl.title = `${total.toLocaleString()} tokens this conversation. No rate is known for ${model ?? 'this model'}, so no cost is shown.`
+    meterEl.title = `${total.toLocaleString()} tokens this conversation. No rate is known for ${name ?? 'this model'}, so no cost is shown.`
     return
   }
 
-  const millions = 1_000_000
-  const cost =
-    (usage.inputTokens / millions) * rate.input +
-    (usage.outputTokens / millions) * rate.output +
-    (usage.cacheReadTokens / millions) * (rate.cacheRead ?? 0)
-  meterEl.textContent = `${tokens} · $${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}`
+  // The running total is kept in `spend`, accumulated as messages arrive, because
+  // each carries the rate that applied to it.
+  const cost = spend.total
+  meterEl.textContent = `${tokens} · $${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(3)}`
   meterEl.title =
     `${total.toLocaleString()} tokens this conversation: ` +
-    `${usage.inputTokens.toLocaleString()} in, ${usage.outputTokens.toLocaleString()} out, ` +
-    `${usage.cacheReadTokens.toLocaleString()} from cache. ` +
-    `Priced at $${rate.input}/M in and $${rate.output}/M out.`
+    `${usage.inputTokens.toLocaleString()} in (cache miss), ` +
+    `${usage.cacheReadTokens.toLocaleString()} cached, ` +
+    `${usage.outputTokens.toLocaleString()} out.\n` +
+    `Costed as it arrived, so a conversation spanning the peak boundary is priced ` +
+    `at both rates. It is ${peak ? 'PEAK' : 'off-peak'} now.\n` +
+    `Spend so far: $${spend.total.toFixed(4)} (${spend.peak.toFixed(4)} at peak, ` +
+    `${spend.offPeak.toFixed(4)} off-peak).`
+}
+
+/**
+ * What has been spent, accumulated per message.
+ *
+ * Kept per conversation and reset with one, because a total that survives a
+ * change of conversation is not the cost of the conversation being read.
+ */
+const spend = { total: 0, peak: 0, offPeak: 0, lastTokens: 0 }
+
+/** Adds whatever a refresh has brought since the last one. */
+function accountSpend(usage, model) {
+  const total = usage?.totalTokens ?? 0
+  const delta = total - spend.lastTokens
+  spend.lastTokens = total
+  if (delta <= 0) return
+  const name = MODEL_ALIASES[model] ?? model
+  const rate = RATES[name]
+  if (!rate) return
+  // The delta is priced at the rate now, which is right for a message that has
+  // just arrived and the best available approximation for one that arrived
+  // mid-refresh.
+  const per = 1_000_000
+  const cost =
+    (delta / per) * ((isPeak() ? rate.peak : rate.offPeak).cacheMiss)
+  spend.total += cost
+  if (isPeak()) spend.peak += cost
+  else spend.offPeak += cost
+}
+
+
+/* ------------------------------------------------------------------- the chats
+ *
+ * A chat and a lesson note are different things, and treating them as one is what
+ * fused two lessons: a reopened chat handed its note to the next subject, so a
+ * lesson on plate tectonics was written into the file about Chinese history.
+ *
+ * A chat is a conversation — a runtime session, with its own turns. A note is
+ * markdown, with its own title, and it belongs to one chat rather than being
+ * inherited by whichever comes next. This lists the chats by how they opened and
+ * lets one be picked up again.
+ */
+const chatsEl = document.getElementById('chats')
+const chatsList = document.getElementById('chats-list')
+const chatsOpen = document.getElementById('chats-open')
+
+/**
+ * Which chat this is.
+ *
+ * A **chat** is not a runtime session. The runtime mints a new session every run
+ * and cannot resume one, so keying a saved chat by its session id made every
+ * launch a new chat — sixteen files for one conversation, which is what the list
+ * showed. And because a new session brought no note with it but inherited
+ * whichever was loaded, a lesson on plate tectonics was written into the file
+ * about Chinese history.
+ *
+ * A chat is therefore identified by the conversation itself: the first turn's
+ * moment, which does not change while the chat continues. The session id is a
+ * detail of the runtime and is not part of it.
+ */
+let chatId = null
+
+/** The identity of the chat being saved, minted once and then kept. */
+function chatIdentity(state) {
+  if (chatId) return chatId
+  const first = (state?.messages ?? [])[0]
+  chatId = `chat-${first?.at ?? Date.now()}`
+  return chatId
+}
+
+async function toggleChats() {
+  if (!chatsEl) return
+  const showing = !chatsEl.hidden
+  chatsEl.hidden = showing
+  if (!showing) await renderChats()
+}
+
+async function renderChats() {
+  if (!chatsList) return
+  chatsList.textContent = ''
+  let chats = []
+  try {
+    chats = (await api.chats?.()) ?? []
+  } catch {
+    chats = []
+  }
+
+  if (!chats.length) {
+    const empty = document.createElement('p')
+    empty.className = 'chats__empty'
+    empty.textContent = 'No chats yet.'
+    chatsList.append(empty)
+    return
+  }
+
+  for (const chat of chats) {
+    const row = document.createElement('button')
+    row.type = 'button'
+    row.className = 'chat'
+    if (chat.id === chatId) row.classList.add('chat--on')
+
+    const what = document.createElement('span')
+    what.className = 'chat__what'
+    what.textContent = chat.title
+
+    const when = document.createElement('span')
+    when.className = 'chat__when'
+    when.textContent = shortWhen(chat.at)
+
+    const count = document.createElement('span')
+    count.className = 'chat__count'
+    count.textContent = `${chat.messages}`
+
+    row.append(what, count, when)
+    row.title = chat.lessonPath ? `Lesson note: ${chat.lessonPath}` : 'No lesson note yet'
+    row.addEventListener('click', () => openChat(chat.id))
+    chatsList.append(row)
+  }
+}
+
+/** A time for today, a date before that. */
+function shortWhen(at) {
+  if (!at) return ''
+  const then = new Date(at)
+  const now = new Date()
+  const sameDay = then.toDateString() === now.toDateString()
+  return sameDay
+    ? then.toTimeString().slice(0, 5)
+    : `${then.getDate()}/${then.getMonth() + 1}`
+}
+
+/**
+ * Picks a chat up.
+ *
+ * Its turns become what is shown, and the next message continues it. The chat
+ * brings its own lesson note rather than borrowing one: a note belongs to the
+ * conversation that wrote it.
+ */
+async function openChat(id) {
+  try {
+    const chat = await api.chat?.(id)
+    if (!chat) return
+    chatId = chat.id
+    restoredMessages = chat.messages ?? []
+    restoredQuestion = chat.board ?? null
+    // The note this chat wrote, if it wrote one. Not inherited from whatever was
+    // open before, which is what put one lesson into another's file.
+    lessonPath = chat.lessonPath ?? null
+    lessonStamp = ''
+    lastMessageCount = -1
+    if (chatsEl) chatsEl.hidden = true
+    showTab('conversation')
+    await refresh()
+  } catch {
+    // A chat that will not open is a chat that cannot be read.
+  }
+}
+
+chatsOpen?.addEventListener('click', (event) => {
+  event.stopPropagation()
+  toggleChats()
+})
+
+document.getElementById('chats-new')?.addEventListener('click', () => {
+  if (chatsEl) chatsEl.hidden = true
+  freshEl.click()
+})
+
+// Anywhere else closes it.
+document.addEventListener('click', (event) => {
+  if (!chatsEl || chatsEl.hidden) return
+  if (chatsEl.contains(event.target) || chatsOpen?.contains(event.target)) return
+  chatsEl.hidden = true
+})
+
+/* ------------------------------------------------------------------- settings
+ *
+ * Two things that act on the whole vault rather than on a note: taking a copy of
+ * it, and emptying it.
+ *
+ * Clearing is destructive and has no undo, so it is not a click: a word has to be
+ * typed first, and the button stays dead until it is. That is the smallest amount
+ * of friction that is still friction — a confirmation dialog is dismissed by
+ * reflex, and a typed word is not.
+ */
+const settingsEl = document.getElementById('settings')
+const settingsOpen = document.getElementById('settings-open')
+const settingsWord = document.getElementById('settings-word')
+const settingsClear = document.getElementById('settings-clear')
+
+settingsOpen?.addEventListener('click', (event) => {
+  event.stopPropagation()
+  if (!settingsEl) return
+  settingsEl.hidden = !settingsEl.hidden
+})
+
+document.addEventListener('click', (event) => {
+  if (!settingsEl || settingsEl.hidden) return
+  if (settingsEl.contains(event.target) || settingsOpen?.contains(event.target)) return
+  settingsEl.hidden = true
+})
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && settingsEl && !settingsEl.hidden) settingsEl.hidden = true
+})
+
+document.getElementById('settings-export')?.addEventListener('click', async () => {
+  const row = document.getElementById('settings-export')
+  const why = row?.querySelector('.settings__why')
+  const before = why?.textContent
+  if (why) why.textContent = 'copying…'
+  try {
+    const result = await api.exportVault?.()
+    settingsEl.hidden = true
+    if (why) why.textContent = before
+    if (result?.ok) await tell(`Exported to ${result.path}`)
+  } catch (error) {
+    if (why) why.textContent = before
+    await tell(`Could not export: ${error.message}`)
+  }
+})
+
+// The word has to be typed, and the button follows what is typed.
+settingsWord?.addEventListener('input', () => {
+  if (settingsClear) settingsClear.disabled = settingsWord.value.trim().toLowerCase() !== 'clear'
+})
+
+document.getElementById('settings-clear')?.addEventListener('click', async () => {
+  const button = document.getElementById('settings-clear')
+  if (!button || button.disabled) return
+  button.disabled = true
+  button.textContent = 'clearing…'
+  try {
+    const result = await api.clearVault?.()
+    settingsEl.hidden = true
+    if (result?.ok) {
+      // Everything on screen was about the vault that has just gone.
+      restoredMessages = []
+      restoredQuestion = null
+      chatId = null
+      lessonPath = null
+      lessonStamp = ''
+      if (settingsWord) settingsWord.value = ''
+      button.textContent = 'Clear it'
+      lastMessageCount = -1
+      await loadVault()
+      await refresh()
+      await tell(`Vault cleared. ${result.removed} entries removed, and a fresh vault written.`)
+    } else {
+      await tell(`Could not clear the vault: ${result?.reason ?? 'unknown reason'}`)
+    }
+  } catch (error) {
+    await tell(`Could not clear the vault: ${error.message}`)
+  } finally {
+    if (button) button.textContent = 'Clear it'
+  }
+})
+
+/**
+ * Says something happened, in the conversation.
+ *
+ * A dialog would interrupt, and a toast would have to be built; the conversation
+ * is already where things are said, and a line in it is a line that can be read
+ * afterwards rather than missed.
+ */
+async function tell(text) {
+  if (!streamEl) return
+  const article = document.createElement('article')
+  article.className = 'turn turn--notice'
+  const body = document.createElement('div')
+  body.className = 'turn__body'
+  body.textContent = text
+  article.append(body)
+  streamEl.append(article)
+  streamEl.scrollTop = streamEl.scrollHeight
 }

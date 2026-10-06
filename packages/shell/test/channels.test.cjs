@@ -259,6 +259,9 @@ test('every function the page calls is one the page defines', () => {
     // `|none(?: yet)?|` reads as a call to `none`. A pattern is prose about text,
     // not code that runs.
     .replace(/\/(?:\\.|\[[^\]]*\]|[^/\\\n])+\/[gimsuy]*/g, ' ')
+    // Template interpolations too: `${which}` reads as a call to `in`. What is
+    // inside them is code, but in a position this crude scanner cannot follow.
+    .replace(/\$\{[^}]*\}/g, ' ')
 
   const defined = new Set([
     // `function name()`, `const name = () =>`, `const name = x =>`, `let name`.
@@ -272,7 +275,11 @@ test('every function the page calls is one the page defines', () => {
 
   const allowed = new Set([
     // Keywords that my crude pattern reads as calls.
-    'if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'await', 'async', 'new', 'do', 'else',
+    // Keywords my crude pattern reads as calls. `in` and `of` come out of
+    // template interpolations and `for ... of`; the rest are the language's own.
+    'if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'await', 'async',
+    'new', 'do', 'else', 'in', 'of', 'case', 'delete', 'void', 'yield', 'with',
+    'instanceof', 'throw', 'finally', 'try', 'break', 'continue',
     // Language and platform globals the page legitimately uses.
     'parse', 'stringify', 'setInterval', 'setTimeout', 'clearInterval', 'clearTimeout', 'fetch',
     'getComputedStyle', 'requestAnimationFrame', 'matchMedia', 'addEventListener', 'removeEventListener',

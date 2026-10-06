@@ -1688,3 +1688,261 @@ body.resizing .teacher {
   letter-spacing: 0.02em;
   cursor: default;
 }
+
+/* -------------------------------------------------------------- the chats list
+ *
+ * A chat is a conversation; a lesson note is markdown. The list says so, in a
+ * line at the bottom, because the difference is the whole reason it exists.
+ */
+
+.rail__btn--text {
+  width: auto;
+  padding: 2px 9px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.chats {
+  position: fixed;
+  z-index: 100;
+  top: calc(var(--rail) + 4px);
+  left: 96px;
+  width: 380px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 25%);
+  -webkit-app-region: no-drag;
+}
+
+.chats__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.chats__head > span {
+  flex: 1;
+  color: var(--ink-3);
+}
+
+.chats__new {
+  padding: 2px 8px;
+  border: 1px solid var(--mark);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--mark);
+  font: inherit;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.chats__new:hover {
+  background: var(--mark);
+  color: var(--paper);
+}
+
+.chats__list {
+  padding: 4px 0;
+}
+
+.chat {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--serif);
+  font-size: 0.9em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+
+.chat--on {
+  background: var(--mark-soft);
+  color: var(--ink);
+}
+
+.chat__what {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat__count,
+.chat__when {
+  flex: none;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+
+.chats__empty {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--ink-3);
+  font-size: 0.9em;
+}
+
+/* ------------------------------------------------------------------ settings
+ *
+ * A short menu from the rail. The destructive row is set apart and is not a
+ * click: a word has to be typed, because a confirmation dialog is dismissed by
+ * reflex and a typed word is not.
+ */
+
+.settings {
+  position: fixed;
+  z-index: 100;
+  top: calc(var(--rail) + 4px);
+  left: 96px;
+  width: 420px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 25%);
+  -webkit-app-region: no-drag;
+}
+
+.settings__head {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.settings__row {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--rule-soft);
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings__row:hover {
+  background: var(--paper-2);
+}
+
+.settings__row--flat {
+  cursor: default;
+  border-bottom: 0;
+}
+
+.settings__row--flat:hover {
+  background: transparent;
+}
+
+.settings__what {
+  display: block;
+  font-size: 0.95em;
+}
+
+.settings__why {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+
+.settings__danger {
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--peach) 7%, transparent);
+}
+
+.settings__danger .settings__what {
+  color: var(--peach);
+}
+
+.settings__confirm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 12px 12px;
+}
+
+.settings__confirm label {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+
+.settings__confirm input {
+  width: 76px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  outline: none;
+}
+
+.settings__confirm input:focus {
+  border-color: var(--peach);
+}
+
+.settings__go {
+  margin-left: auto;
+  padding: 5px 11px;
+  border: 1px solid var(--peach);
+  border-radius: 4px;
+  background: var(--peach);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.settings__go:disabled {
+  border-color: var(--line);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: default;
+}
+
+/* A line in the conversation, for something done to the whole vault. */
+.turn--notice .turn__body {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.turn--notice::before {
+  background: var(--line);
+}

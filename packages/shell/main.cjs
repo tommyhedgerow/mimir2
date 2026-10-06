@@ -656,7 +656,14 @@ function startBridge(paths) {
         // Diagnostics may appear on stdout before the handshake.
       }
     })
-    child.stderr?.on('data', (chunk) => process.stderr.write(`[bridge] ${chunk}`))
+    child.stderr?.on('data', (chunk) => {
+      // The bridge says which model it is running as it comes up, which is the
+      // cheapest place to learn it: no new protocol, and the line already existed.
+      const text = chunk.toString()
+      const model = /runtime ready: [^/]+\/(\S+)/.exec(text)
+      if (model) bridgeModel = model[1]
+      process.stderr.write(`[bridge] ${text}`)
+    })
     child.on('exit', (code) => {
       children.bridge = null
       if (!bridge) reject(new Error(`the runtime bridge exited before it was ready (code ${code})`))
@@ -692,6 +699,8 @@ function startBridge(paths) {
  * slow it stays. A splash that outlives its reason is worse than none.
  */
 let splashWindow = null
+/** Which model the runtime came up as, read from its own startup line. */
+let bridgeModel = null
 let mainWindow = null
 let setupWindow = null
 
@@ -1050,6 +1059,14 @@ async function launch(paths) {
   enableDock(vaultAccess.baseUrl, vaultAccess.token).catch(() => {})
   await startBridge(paths)
 
+  // Housekeeping from a version that saved a copy of a chat per launch. It is not
+  // something the page asks for, and it is never a reason to fail a start.
+  try {
+    tidyConversations(paths)
+  } catch (error) {
+    note(`could not tidy the conversations: ${error.message}`)
+  }
+
   const window = createWindow()
   forwardBridgeEvents()
 
@@ -1383,6 +1400,8 @@ ipcMain.handle('mimir:status', () => ({
   vault: vault?.url ?? '',
   bridge: bridge?.url ?? '',
   vaultPath: resolvePaths().vault,
+  // Which model is answering, so the rail can name it and the meter can price it.
+  model: bridgeModel,
 }))
 
 ipcMain.handle('mimir:open-vault', async () => {
@@ -1430,6 +1449,232 @@ function conversationFile(paths, sessionId) {
 }
 
 /** Saves one conversation: its turns, its question, and where it belongs. */
+/**
+ * Exports the vault to a folder the learner chooses.
+ *
+ * A copy of the *notes*, not of the application's state: `Learn/` and `README.md`
+ * are what would still be worth reading in ten years, and `.live/` is this
+ * application's bookkeeping. The transcript goes too, in its own folder, because a
+ * conversation is part of the record — but beside the notes rather than among
+ * them.
+ *
+ * @returns {Promise<{ok: boolean, path?: string, reason?: string}>}
+ */
+async function exportVault(paths) {
+  const chosen = await dialog.showOpenDialog({
+    title: 'Export the vault',
+    message: 'Choose a folder to export into',
+    properties: ['openDirectory', 'createDirectory'],
+    buttonLabel: 'Export here',
+  })
+  if (chosen.canceled || !chosen.filePaths?.length) return { ok: false, reason: 'cancelled' }
+
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+  const target = join(chosen.filePaths[0], `mimir-vault-${stamp}`)
+  try {
+    mkdirSync(target, { recursive: true })
+    cpSync(join(paths.vault, 'Learn'), join(target, 'Learn'), { recursive: true })
+    const readme = join(paths.vault, 'README.md')
+    if (existsSync(readme)) cpSync(readme, join(target, 'README.md'))
+    // The conversations, under a name that says what they are.
+    const live = join(paths.vault, 'Learn', 'Sessions', '.live')
+    const conversations = join(live, 'conversations')
+    if (existsSync(conversations)) {
+      cpSync(conversations, join(target, 'Conversations'), { recursive: true })
+      // And not again inside the notes, where they were copied from.
+      rmSync(join(target, 'Learn', 'Sessions', '.live'), { recursive: true, force: true })
+    }
+    note(`vault exported to ${target}`)
+    return { ok: true, path: target }
+  } catch (error) {
+    note(`export failed: ${error.message}`)
+    return { ok: false, reason: error.message }
+  }
+}
+
+/**
+ * Clears the vault, keeping the folders and the files the method expects.
+ *
+ * Two things this deliberately does not do: it does not touch anything outside
+ * the vault, and it does not delete the folder itself — what it removes is the
+ * learner's writing, and what is left is a new vault. The session notes go, the
+ * conversations go, and the files that make the place navigable are written back
+ * exactly as a first run would write them.
+ *
+ * It has no undo, which is why the surface asks for a typed word rather than a
+ * click, and why the confirmation is not a default button.
+ *
+ * @returns {{ok: boolean, removed?: number, reason?: string}}
+ */
+function clearVault(paths) {
+  const keep = new Set(['Learn', 'README.md'])
+  let removed = 0
+  try {
+    for (const entry of readdirSync(paths.vault, { withFileTypes: true })) {
+      if (keep.has(entry.name)) continue
+      rmSync(join(paths.vault, entry.name), { recursive: true, force: true })
+      removed += 1
+    }
+    // The notes themselves, and everything the method keeps beside them.
+    const learn = join(paths.vault, 'Learn')
+    for (const entry of readdirSync(learn, { withFileTypes: true })) {
+      rmSync(join(learn, entry.name), { recursive: true, force: true })
+      removed += 1
+    }
+    rmSync(join(paths.vault, 'README.md'), { force: true })
+    // And a fresh vault, which is the same thing a first run makes.
+    seedVault(paths.vault)
+    note(`vault cleared (${removed} entries removed)`)
+    return { ok: true, removed }
+  } catch (error) {
+    note(`clearing the vault failed: ${error.message}`)
+    return { ok: false, reason: error.message }
+  }
+}
+
+ipcMain.handle('mimir:vault-export', () => exportVault(resolvePaths()))
+ipcMain.handle('mimir:vault-clear', () => clearVault(resolvePaths()))
+
+/**
+ * The chats there are, and how each of them opened.
+ *
+ * A **chat** and a **lesson note** are not the same thing, and treating them as
+ * one is what fused two lessons: the conversation is a harness session, and the
+ * note is markdown the teacher writes. A chat can change subject; a note cannot
+ * change title. What was happening was that a reopened chat handed its note to
+ * the next lesson, so a new subject was written into the previous subject's file.
+ *
+ * So a chat is listed as itself — by how it opened and when — and carries the note
+ * it belongs to rather than lending it.
+ */
+ipcMain.handle('mimir:chats', () => {
+  const paths = resolvePaths()
+  const dir = join(paths.vault, 'Learn', 'Sessions', '.live', 'conversations')
+  const chats = []
+  try {
+    for (const entry of readdirSync(dir)) {
+      if (!entry.endsWith('.json')) continue
+      try {
+        const parsed = JSON.parse(readFileSync(join(dir, entry), 'utf8'))
+        const first = (parsed.messages ?? []).find((message) => message.role === 'user')
+        chats.push({
+          // The chat's own id where the record has one, and otherwise the file's,
+          // so an older record can still be opened.
+          id: parsed.id ?? parsed.sessionId,
+          fingerprint: chatFingerprint(first, parsed.messages ?? []),
+          at: parsed.at ?? 0,
+          messages: (parsed.messages ?? []).length,
+          lessonPath: parsed.lessonPath ?? null,
+          title: chatTitle(first?.text),
+        })
+      } catch {
+        // A chat that will not parse is one chat lost.
+      }
+    }
+  } catch {
+    // No chats yet.
+  }
+  // One row per chat.
+  //
+  // Every launch before this fix wrote another copy of the same conversation under
+  // a fresh session id, so keying on the session id still gave sixteen rows: they
+  // are sixteen *files* and one conversation. A chat is therefore identified by
+  // what it is — its opening turn's moment, which does not change as the chat
+  // continues — and the newest revision of each is the one shown.
+  const newest = new Map()
+  for (const chat of chats) {
+    const seen = newest.get(chat.fingerprint)
+    if (!seen || (chat.at ?? 0) > (seen.at ?? 0)) newest.set(chat.fingerprint, chat)
+  }
+  return [...newest.values()].sort((a, b) => b.at - a.at)
+})
+
+/**
+ * What makes two records the same chat.
+ *
+ * Not the session id, which the runtime mints afresh every launch, and not the
+ * file, which is a revision. The opening turn is the chat's own beginning: it is
+ * written once, it does not change as the conversation continues, and two records
+ * that share it are two copies of one conversation.
+ */
+function chatFingerprint(first, messages) {
+  if (!first) return `empty:${messages.length}`
+  return `${first.at ?? 0}:${String(first.text ?? '').slice(0, 80)}`
+}
+
+/** The opening line, shortened to something that fits a list. */
+function chatTitle(text) {
+  if (!text) return 'an empty chat'
+  const cleaned = text.replace(/\s+/g, ' ').trim()
+  return cleaned.length > 64 ? `${cleaned.slice(0, 61)}…` : cleaned
+}
+
+/**
+ * Removes the copies of a chat that earlier versions left behind.
+ *
+ * Before a chat had an identity of its own, every launch saved its transcript
+ * under a fresh session id — so one conversation became sixteen files, and sixteen
+ * files is a list of files rather than a list of chats. The list already shows one
+ * row per chat, by fingerprint; this takes the redundant files away so the vault
+ * does not accumulate them.
+ *
+ * Only files this application wrote, only in its own `.live/conversations`
+ * directory, and only where another file holds the same conversation. The newest
+ * revision of each chat is kept.
+ */
+function tidyConversations(paths) {
+  const dir = join(paths.vault, 'Learn', 'Sessions', '.live', 'conversations')
+  const byFingerprint = new Map()
+  let removed = 0
+  let entries = []
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return { removed: 0, kept: 0 }
+  }
+
+  for (const entry of entries) {
+    if (!entry.endsWith('.json')) continue
+    const full = join(dir, entry)
+    try {
+      const parsed = JSON.parse(readFileSync(full, 'utf8'))
+      const first = (parsed.messages ?? []).find((message) => message.role === 'user')
+      const key = chatFingerprint(first, parsed.messages ?? [])
+      const seen = byFingerprint.get(key)
+      if (!seen || (parsed.at ?? 0) > (seen.at ?? 0)) {
+        byFingerprint.set(key, { full, at: parsed.at ?? 0, entry })
+      }
+    } catch {
+      // A file that will not parse is left alone: it is not this handler's to judge.
+    }
+  }
+
+  const keep = new Set([...byFingerprint.values()].map((row) => row.entry))
+  for (const entry of entries) {
+    if (!entry.endsWith('.json') || keep.has(entry)) continue
+    try {
+      rmSync(join(dir, entry))
+      removed += 1
+    } catch {
+      // A file that will not go is a file that stays.
+    }
+  }
+  if (removed) note(`tidied ${removed} duplicate conversation files`)
+  return { removed, kept: keep.size }
+}
+
+/** One chat, to read or to continue. */
+ipcMain.handle('mimir:chat', (_event, sessionId) => {
+  const paths = resolvePaths()
+  const dir = join(paths.vault, 'Learn', 'Sessions', '.live', 'conversations')
+  const wanted = String(sessionId ?? '').replace(/[^\w.-]/g, '_')
+  try {
+    return JSON.parse(readFileSync(join(dir, `${wanted}.json`), 'utf8'))
+  } catch {
+    return null
+  }
+})
+
 ipcMain.handle('mimir:conversation-save', (_event, { sessionId, state, lessonPath }) => {
   if (!sessionId || !state) return false
   try {
@@ -1439,6 +1684,9 @@ ipcMain.handle('mimir:conversation-save', (_event, { sessionId, state, lessonPat
       file,
       JSON.stringify(
         {
+          // The chat's own id. `sessionId` is the runtime's and changes every
+          // launch, so it cannot be what a chat is called.
+          id: sessionId,
           sessionId,
           lessonPath: lessonPath ?? null,
           at: Date.now(),

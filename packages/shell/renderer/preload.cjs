@@ -50,6 +50,18 @@ contextBridge.exposeInMainWorld('mimir', {
   saveConversation: (sessionId, state, lessonPath) =>
     ipcRenderer.invoke('mimir:conversation-save', { sessionId, state, lessonPath }),
 
+  /** Copies the notes and the conversations to a folder the learner picks. */
+  exportVault: () => ipcRenderer.invoke('mimir:vault-export'),
+
+  /** Empties the vault and writes a fresh one. No undo. */
+  clearVault: () => ipcRenderer.invoke('mimir:vault-clear'),
+
+  /** Every chat there is, newest first. */
+  chats: () => ipcRenderer.invoke('mimir:chats'),
+
+  /** One chat by its session id. */
+  chat: (sessionId) => ipcRenderer.invoke('mimir:chat', sessionId),
+
   /** The most recent conversation, or null if there is not one. */
   loadConversation: () => ipcRenderer.invoke('mimir:conversation-load'),
 
