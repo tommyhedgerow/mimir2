@@ -18,8 +18,8 @@ importers:
         specifier: 0.1.7-rc.2
         version: 0.1.7-rc.2(ce90db4d02e023908a0e55be988fe833)
       dsh-mimir-skin:
-        specifier: file:../../preset/mimir-skin
-        version: file:../../preset/mimir-skin
+        specifier: file:../packages/mimir-skin
+        version: file:../packages/mimir-skin
 
 packages:
 
@@ -3278,8 +3278,8 @@ packages:
     resolution: {integrity: sha512-svtcdpS8CgJyqAjEQIXdb3OjhFVVYjzGAPO8WGCmRbrml64SPw/jJD4GoE98aR7r25A0XcgrK3F02yw9R/vhQw==}
     engines: {node: '>=0.3.1'}
 
-  dsh-mimir-skin@file:../../preset/mimir-skin:
-    resolution: {directory: ../../preset/mimir-skin, type: directory}
+  dsh-mimir-skin@file:../packages/mimir-skin:
+    resolution: {directory: ../packages/mimir-skin, type: directory}
 
   ecdsa-sig-formatter@1.0.11:
     resolution: {integrity: sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ==}
@@ -7783,7 +7783,7 @@ snapshots:
 
   diff@9.0.0: {}
 
-  dsh-mimir-skin@file:../../preset/mimir-skin: {}
+  dsh-mimir-skin@file:../packages/mimir-skin: {}
 
   ecdsa-sig-formatter@1.0.11:
     dependencies:

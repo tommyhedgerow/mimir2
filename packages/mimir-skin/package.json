@@ -1,0 +1,44 @@
+{
+  "name": "dsh-mimir-skin",
+  "version": "1.1.0",
+  "type": "module",
+  "description": "The Mimir board: the lesson's spine, question and drawings published into the DSH conversation, in the vault's own palette and faces.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tommyhedgerow/Mimir.git",
+    "directory": "preset/mimir-skin"
+  },
+  "homepage": "https://github.com/tommyhedgerow/Mimir#readme",
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "obsidian",
+    "learning",
+    "tutor"
+  ],
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

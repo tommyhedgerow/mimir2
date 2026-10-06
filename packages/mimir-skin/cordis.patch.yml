@@ -1,0 +1,17 @@
+# This package's layer in the DSH profile stack.
+#
+# `dsh plugin --profile web add <this directory>` installs it, and because the
+# manifest names this file under `dsh.bundle`, DSH also appends `dsh-mimir-skin`
+# to `dsh.profile.bundles` so the layer is composed. The insert row below is the
+# other half and the half that actually mounts the plugin: a bundle entry is a
+# layer to read, and a layer's rows are what compose.
+#
+# WHY THE ROW IS NOT IN THE PRESET. A preset row can mount a host half, but it
+# produces no browser bundle at all — so the board would register as a tool and
+# draw nothing on screen, which is worse than not shipping it, because it looks
+# like it worked. The browser half only reaches the page through the profile.
+# Keeping both halves in one package means one install puts the tool and its
+# drawing surface in place together, and they cannot be installed out of step.
+- insert:
+    - id: mimir-skin
+      name: dsh-mimir-skin
