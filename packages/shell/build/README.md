@@ -47,6 +47,34 @@ The three things that assumed macOS and now do not:
     the paths its target actually produces, because a Mac-shaped check run against
     a Windows build reports every resource missing.
 
+## Where the cross-platform work stands
+
+It was taken as far as a real installer — `Mimir Setup 0.1.0.exe`, x64, built from
+a Mac — and then parked, because **a build that has never been launched is not a
+build that is finished**, and the first run would find problems that need a Windows
+machine to debug.
+
+The packaging machinery for it is in `git stash`:
+
+```sh
+git stash list
+git stash show -p 'stash@{0}'      # cross-platform build: windows and linux packaging
+```
+
+It holds the platform-aware vendoring (fetching the published release and
+unpacking an NSIS installer's `app-64.7z` payload), the `MIMIR_TARGET` switch, and
+the per-platform mermaid engine lookup. Restore it with `git stash pop` when there
+is a Windows machine to test on.
+
+What is on `main` is the part that is safe: `findKernel()` looks in the layout each
+platform uses, and this file's `afterPack` branches on `electronPlatformName`
+instead of assuming a macOS bundle. Both are no-ops on macOS — the macOS candidate
+is still first in the list, and `darwin` still takes the branch it always took —
+and both prevent a Windows build that launches and cannot find its own runtime.
+
+A friend with a Windows PC is the only way to know. It is not a small favour: the
+installer is over a gigabyte and unlaunched, so the first run is a bug hunt.
+
 ## What is verified, and what is not
 
 **Verified:** the macOS build, end to end — vendoring, packaging, the bundle check,
