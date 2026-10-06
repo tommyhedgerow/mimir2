@@ -385,3 +385,32 @@ test('the event pump is single, and abortable', () => {
   assert.ok(abortAt !== -1, 'the restart does not stop the pump')
   assert.ok(startAt > abortAt, 'the restart starts a new pump before stopping the old one')
 })
+
+
+test('a key with quotes in it is refused, not written', () => {
+  // A key carrying quotes of its own was written into the YAML inside the quotes
+  // that quoting it added, producing a file the harness could read and no provider
+  // would accept. The turn then ran, made no model call, cost nothing and produced
+  // nothing — every layer reported success.
+  const main = readFileSync(join(__dirname, '..', 'main.cjs'), 'utf8')
+  const handler = main.slice(main.indexOf("ipcMain.handle('mimir:provider-key'"))
+  const guard = handler.search(/\/\[[^\]]*\]\/\.test\(key\)/)
+  assert.ok(guard !== -1, 'the key is not checked for quoting before it is written')
+  assert.ok(
+    handler.indexOf('writeCredentials') > guard,
+    'the key is written before it is checked',
+  )
+  assert.match(handler, /look like a key/, 'the refusal does not say what is wrong')
+})
+
+test('the credential writer quotes exactly once', () => {
+  // Quoting a value that is already quoted nests the quotes rather than escaping
+  // them, and a nested secret is not the secret.
+  const main = readFileSync(join(__dirname, '..', 'main.cjs'), 'utf8')
+  const writer = main.slice(main.indexOf('function writeRefs'))
+  assert.match(
+    writer,
+    /JSON\.stringify\(secret\)/,
+    'the secret is written without a single round of quoting',
+  )
+})

@@ -1615,6 +1615,18 @@ ipcMain.handle('mimir:provider-key', (_event, payload) => {
   const key = String(payload?.apiKey ?? '').trim()
   if (!name) return { ok: false, reason: 'no provider named' }
   if (!key) return { ok: false, reason: 'no key given' }
+  // A key is a bare token. Anything else is a paste that went wrong, and the
+  // reason this check exists is that one did: a key carrying quotes of its own
+  // was written into the YAML *inside* the quotes that quoting it added, which
+  // produced a file the harness could read and no provider would accept. The
+  // turn then ran, took no model call, cost nothing and produced nothing — the
+  // hardest kind of failure to find, because every layer said it was fine.
+  if (/["'\\\s]/.test(key)) {
+    return {
+      ok: false,
+      reason: 'that does not look like a key — it has quotes, backslashes or spaces in it. Paste the key on its own.',
+    }
+  }
   try {
     writeCredentials(paths, name, key)
     note('a key was saved for ' + name)
