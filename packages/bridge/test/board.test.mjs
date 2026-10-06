@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Bridge, ChatSession, boardFrom, assistantTextFrom, workingFrom } from '../lib/bridge.mjs'
+import { Bridge, ChatSession, boardFrom, assistantTextFrom, workingFrom, describeAgent } from '../lib/bridge.mjs'
 
 /** A tool/result event, shaped as the harness emits it. */
 const resultEvent = (meta) => ({
@@ -210,4 +210,65 @@ test('a committed answer does not become a second copy of itself', () => {
   }
 
   assert.equal(session.messages.length, before, 'the answer was recorded twice')
+})
+
+/* ------------------------------------------------------------- the specialists */
+
+test('a child session is told from the parent, and does not enter the conversation', () => {
+  // Reported: the cartographer's working notes appeared in the main chat. A
+  // sub-agent is a child session whose events arrive in the same stream as the
+  // teacher's, and the notification names the session it is about — so without
+  // reading that, a specialist's notes are indistinguishable from the teacher's
+  // words.
+  const parent = 'parent-1'
+  const child = 'child-9'
+
+  const bridge = new Bridge({ vault: null })
+  bridge.started = true
+  bridge.openSession(parent)
+
+  const forwarded = []
+  bridge.subscribe((event) => forwarded.push(event))
+
+  // A child's assistant text, arriving as a session event about the child.
+  bridge.forward({ method: 'session.event', params: { sessionId: child, event: {
+    type: 'assistant/message',
+    data: { message: { role: 'assistant', content: [{ type: 'text', text: 'I am the cartographer; the field maps as follows.' }] } },
+  } } })
+  bridge.forward({ method: 'subagent.started', params: { parentSessionId: parent, childSessionId: child } })
+
+  const messages = forwarded.filter((e) => e.type === 'message')
+  assert.deepEqual(messages, [], 'a child message reached the conversation')
+
+  const agents = bridge.getSession(parent).agents
+  assert.equal(agents.length, 1, 'the child was not recorded')
+  assert.equal(agents[0].id, child)
+})
+
+test('a specialist is named from what it said', () => {
+  assert.equal(describeAgent('The cartographer maps the field as follows.'), 'cartographer')
+  assert.equal(describeAgent('I am the examiner; here are three checks.'), 'examiner')
+  // Anything unrecognised is a label, not a classification.
+  assert.equal(describeAgent('Some other opening line entirely.'), 'Some other opening line entirely.')
+  assert.equal(describeAgent(''), null)
+})
+
+test('usage is accumulated from every assistant message', () => {
+  const bridge = new Bridge({ vault: null })
+  bridge.started = true
+  bridge.openSession('p1')
+
+  const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 100, cacheWriteTokens: 0, totalTokens: 115 }
+  bridge.forward({ method: 'session.event', params: { sessionId: 'p1', event: {
+    type: 'assistant/message',
+    data: { message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }] }, usage },
+  } } })
+  bridge.forward({ method: 'session.event', params: { sessionId: 'p1', event: {
+    type: 'assistant/message',
+    data: { message: { role: 'assistant', content: [{ type: 'text', text: 'again' }] }, usage },
+  } } })
+
+  const total = bridge.getSession('p1').usage
+  assert.equal(total.inputTokens, 20, 'input tokens were not accumulated')
+  assert.equal(total.cacheReadTokens, 200, 'cache reads were not accumulated')
 })

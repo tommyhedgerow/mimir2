@@ -1549,3 +1549,142 @@ body.resizing .teacher {
   text-transform: uppercase;
   text-align: center;
 }
+
+/* ------------------------------------------------------------- the specialists
+ *
+ * A chip for each while it works, and a panel to read one. Small on purpose: a
+ * specialist is context, not the lesson — it should be visible that one is
+ * working and possible to look, without either being missed or being in the way.
+ */
+
+.agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 26px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.agent {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--paper-2);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.agent:hover {
+  border-color: var(--mark);
+  color: var(--ink);
+}
+
+.agent--on {
+  border-color: var(--mark);
+  background: var(--mark-soft);
+  color: var(--ink);
+}
+
+.agent--working .agent__state {
+  color: var(--mark);
+}
+
+.agent__state {
+  color: var(--ink-3);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+/* A working specialist pulses, so a long delegation is visibly a delegation. */
+.agent--working .agent__what::after {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--mark);
+  animation: mimir-pulse 1.4s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+.tab__count {
+  margin-left: 2px;
+  color: var(--mark);
+}
+
+/* ----------------------------------------------------------- a specialist's own
+ *
+ * Read in the centre, where the conversation is, because reading a specialist is
+ * the same act as reading an answer — just from somebody else.
+ */
+
+.panel--agents {
+  overflow-y: auto;
+  padding: 26px 40px 80px;
+}
+
+.agents-view > * {
+  max-width: 34em;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.agents-view__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 1em;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.agents-view__name {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.agents-view__state {
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.agents-view__state--working {
+  background: var(--mark-soft);
+  color: var(--mark);
+}
+
+.agents-view__state--finished {
+  background: var(--paper-2);
+  color: var(--ink-3);
+}
+
+/* ---------------------------------------------------------------- the meter
+ *
+ * Tokens, and a price where a rate is known. In the rail beside the model,
+ * because it is about the same thing: what is answering, and what it costs.
+ */
+
+.rail__meter {
+  padding: 2px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 20px;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  cursor: default;
+}

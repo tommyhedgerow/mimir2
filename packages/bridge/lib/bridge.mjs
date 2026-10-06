@@ -36,6 +36,20 @@ export class ChatSession {
   constructor(id, bridge) {
     /** The question currently on the board, if there is one. */
     this.board = null
+    /**
+     * The specialists this session has briefed.
+     *
+     * A sub-agent is a child session of the harness, and its events arrive in the
+     * same stream as the teacher's. Forwarded as ordinary messages they put a
+     * cartographer's working notes into the conversation — which is what was
+     * reported. They are kept here instead: one entry per child, with what it was
+     * asked, what it has said, and whether it is still working.
+     *
+     * @type {Map<string, {id: string, state: string, text: string, startedAt: number}>}
+     */
+    this.agents = new Map()
+    /** Every attribution of usage seen this session, for the cost meter. */
+    this.usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 }
     /** When it was asked, so a transcript can place it. */
     this.questionAt = null
     this.id = id
@@ -86,6 +100,10 @@ export class ChatSession {
       busy: this.busy,
       updatedAt: this.updatedAt,
       messageCount: this.messages.length,
+      agents: [...this.agents.values()],
+      usage: this.usage,
+      // Which model, so a cost can be priced rather than only counted.
+      model: this.bridge?.model?.model ?? null,
       // What the surface needs to draw the lesson beside the conversation: the
       // question being asked and where in the transcript it was asked.
       board: this.board,
@@ -311,6 +329,19 @@ export class Bridge {
   }
 
   /**
+   * Deliver one harness notification, as the runtime would.
+   *
+   * The notification path is private because nothing but the runtime should feed
+   * it; this is the seam a test uses to do exactly that, without standing up a
+   * harness to have something to listen to.
+   *
+   * @param {any} notification
+   */
+  forward(notification) {
+    this.#forwardNotification(this.options?.sessionId ?? firstSessionId(this.sessions), notification)
+  }
+
+  /**
    * Turns a harness notification into Mimir's own event vocabulary. Only the
    * events a chat surface can draw are forwarded; the rest are dropped here
    * rather than in the UI, so the UI has one shape to handle.
@@ -319,6 +350,15 @@ export class Bridge {
    */
   #forwardNotification(sessionId, notification) {
     const method = notification?.method
+
+    // Which session this is about. A sub-agent is a child session of the harness
+    // and its notifications say so — without reading that, a specialist's working
+    // notes are indistinguishable from the teacher's own words, which is exactly
+    // how a cartographer's thinking ended up in the conversation.
+    const about = notification?.params?.sessionId ?? sessionId
+    const session = this.sessions.get(sessionId)
+    const isChild = about !== sessionId
+
     if (method === 'session.event') {
       const event = notification.params?.event ?? notification.params
 
@@ -327,6 +367,33 @@ export class Bridge {
       // lesson that way: its spine, question and drawings ride here as `meta`
       // while the model sees one line, so a lesson can carry four drawings
       // without four thousand tokens of path data entering the context.
+      // What the turn cost, in tokens. That is the only figure the runtime gives:
+      // a price needs a rate card, and a rate card goes out of date, so the meter
+      // counts faithfully and prices where a price is known.
+      const usage = event?.data?.usage
+      if (session && usage) {
+        for (const key of ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'totalTokens']) {
+          session.usage[key] = (session.usage[key] ?? 0) + (Number(usage[key]) || 0)
+        }
+      }
+
+      // A child's events belong to the child.
+      if (isChild) {
+        if (session) {
+          const agent = session.agents.get(about) ?? {
+            id: about,
+            state: 'working',
+            text: '',
+            startedAt: Date.now(),
+          }
+          const said = assistantTextFrom(event)
+          if (said) agent.text = said
+          session.agents.set(about, agent)
+          this.#emit(sessionId, { type: 'agent', agent: { ...agent } })
+        }
+        return
+      }
+
       const board = boardFrom(event)
       if (board) {
         // Remembered as well as emitted. The board is part of what was said, and
@@ -367,12 +434,17 @@ export class Bridge {
       if (status === 'running' || status === 'idle') this.#emit(sessionId, { type: 'status', status })
       return
     }
-    if (method === 'subagent.started') {
-      this.#emit(sessionId, { type: 'subagent', subagentId: notification.params?.childSessionId ?? 'subagent', state: 'started' })
-      return
-    }
-    if (method === 'subagent.finished') {
-      this.#emit(sessionId, { type: 'subagent', subagentId: notification.params?.childSessionId ?? 'subagent', state: 'finished' })
+    if (method === 'subagent.started' || method === 'subagent.finished') {
+      const id = notification.params?.childSessionId ?? about
+      const state = method === 'subagent.started' ? 'working' : 'finished'
+      if (session) {
+        const agent = session.agents.get(id) ?? { id, text: '', startedAt: Date.now() }
+        agent.state = state
+        if (state === 'finished') agent.finishedAt = Date.now()
+        agent.name = agent.name ?? describeAgent(agent.text)
+        session.agents.set(id, agent)
+        this.#emit(sessionId, { type: 'agent', agent: { ...agent } })
+      }
     }
   }
 
@@ -425,6 +497,35 @@ export function workingFrom(event) {
     web_search: 'checking a source',
   }
   return named[name] ?? 'working…'
+}
+
+/**
+ * What to call a specialist, from what it said.
+ *
+ * A child session's name is a uuid, which is no use on a chip. What the agent
+ * *is* is in its own report — "the cartographer maps the field" — so the first
+ * sentence that names a role is taken as the name, and anything unrecognised is
+ * simply a specialist. It is a label, not a classification; being wrong about it
+ * costs a word.
+ *
+ * @param {string} text
+ * @returns {string|null}
+ */
+export /** The only session there is, or null. For callers that have no id to hand. */
+function firstSessionId(sessions) {
+  const first = sessions.keys().next()
+  return first.done ? null : first.value
+}
+
+export function describeAgent(text) {
+  if (!text) return null
+  const first = text.split('\n').find((line) => line.trim().length > 0) ?? ''
+  const known = ['cartographer', 'researcher', 'examiner', 'sophist', 'librarian', 'diagram maker']
+  const found = known.find((role) => first.toLowerCase().includes(role))
+  if (found) return found
+  // Otherwise the first few words, which is usually enough to tell two apart.
+  const short = first.replace(/[#*_`]/g, '').trim().split(/\s+/).slice(0, 6).join(' ')
+  return short ? short.slice(0, 48) : null
 }
 
 export function assistantTextFrom(event) {

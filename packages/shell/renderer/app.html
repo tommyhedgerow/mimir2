@@ -19,6 +19,7 @@
       <button class="rail__btn" id="size" title="Reading size">A</button>
       <button class="rail__btn rail__btn--wide" id="toggle-teacher" title="Show or hide the teacher">◨</button>
       <button class="rail__btn" id="theme" title="Light or dark">◐</button>
+      <span class="rail__meter" id="meter" hidden title="What this conversation has cost, in tokens"></span>
       <span class="rail__model" id="model">connecting…</span>
     </header>
 
@@ -39,11 +40,15 @@
       <main class="centre" id="centre">
         <div class="tabs" role="tablist">
           <button class="tab tab--on" id="tab-conversation" role="tab" aria-selected="true">conversation</button>
+          <button class="tab" id="tab-agents" role="tab" aria-selected="false" hidden>
+            agents <span class="tab__count" id="agents-count"></span>
+          </button>
           <button class="tab" id="tab-note" role="tab" aria-selected="false">note</button>
           <span class="tabs__where" id="tabs-where"></span>
         </div>
 
         <section class="panel panel--conversation" id="panel-conversation" role="tabpanel">
+          <div class="agents" id="agents" hidden></div>
           <div class="teacher__stream" id="stream">
             <article class="invocation" id="invocation">
               <h1>What are we learning?</h1>
@@ -60,6 +65,10 @@
               <button id="send" class="send">Ask</button>
             </div>
           </div>
+        </section>
+
+        <section class="panel panel--agents" id="panel-agents" role="tabpanel" hidden>
+          <div class="agents-view" id="agents-view"></div>
         </section>
 
         <section class="panel panel--note" id="panel-note" role="tabpanel" hidden>

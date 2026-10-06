@@ -856,7 +856,7 @@ showPaneTab(localStorage.getItem(PANE_TAB_KEY) || 'map')
 
 api.onEvent((event) => {
   if (event.sessionId !== sessionId) return
-  if (event.type === 'message' || event.type === 'board') {
+  if (event.type === 'message' || event.type === 'board' || event.type === 'agent') {
     // The conversation is redrawn from the session rather than accumulated from
     // these, so an event only has to say that something changed. That is what
     // makes a redraw after a dropped event, or after switching tabs, the same
@@ -1228,15 +1228,20 @@ restorePanes()
 const TAB_KEY = 'mimir.centreTab'
 const panels = {
   conversation: document.getElementById('panel-conversation'),
+  agents: document.getElementById('panel-agents'),
   note: document.getElementById('panel-note'),
 }
 const tabButtons = {
   conversation: document.getElementById('tab-conversation'),
+  agents: document.getElementById('tab-agents'),
   note: document.getElementById('tab-note'),
 }
 
 function showTab(which) {
-  const target = panels[which] ? which : 'conversation'
+  // The agents tab only exists once there are agents, so a remembered choice of
+  // it must not leave every panel hidden.
+  const usable = (name) => panels[name] && !panels[name].dataset.disabled
+  const target = usable(which) ? which : 'conversation'
   for (const [name, panel] of Object.entries(panels)) {
     if (panel) panel.hidden = name !== target
   }
@@ -1372,6 +1377,8 @@ async function refresh() {
     renderConversation(displayState(state))
   }
   if (state?.board) drawBoard(state.board)
+  renderAgents(state?.agents)
+  renderMeter(state?.usage, state?.model ?? modelEl?.textContent)
 
   if (panels.note && !panels.note.hidden) await showLesson()
 
@@ -1450,12 +1457,38 @@ document.addEventListener('mouseover', (event) => {
 
 document.addEventListener('mouseout', (event) => {
   if (!event.target?.closest?.('a[href]')) return
+  // Moving from a link to its own child fires a mouseout with a related target
+  // still inside the link, which is not leaving it.
+  if (event.relatedTarget && event.target.closest('a[href]')?.contains(event.relatedTarget)) return
   clearTimeout(previewTimer)
   hidePreview()
 })
 
 document.addEventListener('click', (event) => {
   if (event.target?.closest?.('a[href]')) hidePreview()
+})
+
+/**
+ * And the ways the pointer leaves a link without saying so.
+ *
+ * Reported twice: the card did not go when the pointer left, and it stayed on
+ * screen while the page scrolled. A `mouseout` is not enough on its own — it
+ * fires only on a boundary crossing, so scrolling with the pointer still, or
+ * moving within the same link, left the card up. Tabbing away, or the window
+ * losing focus, does the same.
+ *
+ * Hiding on any scroll is also right for its own sake: the card is positioned
+ * against the link's rectangle, so scrolling moves the link and leaves the card
+ * pointing at nothing.
+ */
+window.addEventListener('scroll', hidePreview, true)
+window.addEventListener('wheel', () => {
+  clearTimeout(previewTimer)
+  hidePreview()
+}, { passive: true })
+window.addEventListener('blur', hidePreview)
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' || event.key === 'Tab') hidePreview()
 })
 
 /** Kept for the call site in the markdown renderer; the watching is delegated. */
@@ -1519,4 +1552,152 @@ async function showPreview(anchor, href) {
   }
   card.style.left = `${Math.max(margin, left)}px`
   card.style.top = `${top}px`
+}
+
+/* -------------------------------------------------------------- the specialists
+ *
+ * A sub-agent is a child session of the runtime, and its events arrive in the
+ * same stream as the teacher's. Forwarded as ordinary messages they put a
+ * cartographer's working notes into the conversation — which is what was
+ * reported. They are separated by the bridge and drawn here instead: a chip for
+ * each while it works, and a panel to read one when its thinking is wanted.
+ *
+ * The chips are small on purpose. A specialist is context, not the lesson: it
+ * should be visible that one is working and possible to look, without either
+ * being missed or being in the way.
+ */
+const agentsEl = document.getElementById('agents')
+const agentsView = document.getElementById('agents-view')
+const agentsCount = document.getElementById('agents-count')
+const agentsTab = document.getElementById('tab-agents')
+let agents = []
+let agentShown = null
+
+function renderAgents(list) {
+  agents = list ?? []
+
+  // The tab appears when there is something to see, and says how many.
+  const any = agents.length > 0
+  if (agentsTab) agentsTab.hidden = !any
+  if (panels.agents) panels.agents.dataset.disabled = any ? '' : '1'
+  if (agentsCount) agentsCount.textContent = any ? String(agents.length) : ''
+  if (!any) {
+    if (agentsEl) agentsEl.hidden = true
+    if (agentsView) agentsView.textContent = ''
+    return
+  }
+
+  if (agentsEl) {
+    agentsEl.hidden = false
+    agentsEl.textContent = ''
+    for (const agent of agents) {
+      const chip = document.createElement('button')
+      chip.type = 'button'
+      chip.className = `agent agent--${agent.state ?? 'working'}`
+      if (agent.id === agentShown) chip.classList.add('agent--on')
+
+      const what = document.createElement('span')
+      what.className = 'agent__what'
+      what.textContent = agent.name || 'specialist'
+
+      const state = document.createElement('span')
+      state.className = 'agent__state'
+      state.textContent = agent.state === 'finished' ? 'done' : 'working'
+
+      chip.append(what, state)
+      chip.addEventListener('click', () => showAgent(agent.id))
+      agentsEl.append(chip)
+    }
+  }
+
+  if (agentsView) renderAgentView()
+}
+
+/** One specialist's own words, which is the point of having a panel at all. */
+function renderAgentView() {
+  if (!agentsView) return
+  agentsView.textContent = ''
+  const agent = agents.find((a) => a.id === agentShown) ?? agents[agents.length - 1]
+  if (!agent) return
+
+  const head = document.createElement('div')
+  head.className = 'agents-view__head'
+  const name = document.createElement('span')
+  name.className = 'agents-view__name'
+  name.textContent = agent.name || 'specialist'
+  const state = document.createElement('span')
+  state.className = `agents-view__state agents-view__state--${agent.state ?? 'working'}`
+  state.textContent = agent.state === 'finished' ? 'finished' : 'working'
+  head.append(name, state)
+  agentsView.append(head)
+
+  if (agent.text) {
+    const body = document.createElement('div')
+    body.className = 'agents-view__text'
+    draw(body, agent.text)
+    agentsView.append(body)
+  } else {
+    const waiting = document.createElement('p')
+    waiting.className = 'teacher__invocation'
+    waiting.textContent = 'Nothing yet. It is still working.'
+    agentsView.append(waiting)
+  }
+}
+
+function showAgent(id) {
+  agentShown = id
+  renderAgents(agents)
+  showTab('agents')
+}
+
+/* ------------------------------------------------------------------- the meter
+ *
+ * What the conversation has cost, in tokens.
+ *
+ * The runtime reports tokens, not money: a price needs a rate card, and a rate
+ * card is a claim about somebody else's billing that goes out of date without
+ * telling you. So the meter counts what it is told, and prices it only where a
+ * price is known — see RATES below.
+ */
+const meterEl = document.getElementById('meter')
+
+/**
+ * Rates, per million tokens, for the model in use.
+ *
+ * Kept here rather than inferred, and empty by default: a made-up price is worse
+ * than none, and a wrong one is worse still. The meter shows tokens until a rate
+ * is filled in.
+ */
+const RATES = {
+  'deepseek-v4-flash': { input: 0.14, output: 0.28, cacheRead: 0.014 },
+}
+
+function renderMeter(usage, model) {
+  if (!meterEl) return
+  const total = usage?.totalTokens ?? 0
+  if (!total) {
+    meterEl.hidden = true
+    return
+  }
+  meterEl.hidden = false
+
+  const rate = RATES[model]
+  const tokens = `${Math.round(total / 1000)}k`
+  if (!rate) {
+    meterEl.textContent = tokens
+    meterEl.title = `${total.toLocaleString()} tokens this conversation. No rate is known for ${model ?? 'this model'}, so no cost is shown.`
+    return
+  }
+
+  const millions = 1_000_000
+  const cost =
+    (usage.inputTokens / millions) * rate.input +
+    (usage.outputTokens / millions) * rate.output +
+    (usage.cacheReadTokens / millions) * (rate.cacheRead ?? 0)
+  meterEl.textContent = `${tokens} · $${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}`
+  meterEl.title =
+    `${total.toLocaleString()} tokens this conversation: ` +
+    `${usage.inputTokens.toLocaleString()} in, ${usage.outputTokens.toLocaleString()} out, ` +
+    `${usage.cacheReadTokens.toLocaleString()} from cache. ` +
+    `Priced at $${rate.input}/M in and $${rate.output}/M out.`
 }
